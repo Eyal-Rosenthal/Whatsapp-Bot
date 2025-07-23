@@ -1,3 +1,6 @@
 node_modules
 .env
+*.json
+whatsapp-bot-*.json
+keyfile.json
 keyfile.json
