@@ -5,3 +5,5 @@ steps:
     args: ['push', 'gcr.io/$PROJECT_ID/whatsapp-bot']
 images:
   - 'gcr.io/$PROJECT_ID/whatsapp-bot'
+options:
+  logging: CLOUD_LOGGING_ONLY
