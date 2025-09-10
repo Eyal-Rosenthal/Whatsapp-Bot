@@ -1,4 +1,5 @@
-require('dotenv').config();
+// אם יש שורה כזו, תסיר אותה או תניח אותה רק בסביבה המקומית
+// require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
