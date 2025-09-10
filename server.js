@@ -4,6 +4,10 @@ const axios = require('axios');
 const { google } = require('googleapis');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const bodyParser = require('body-parser');
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PORT = process.env.PORT || 8080;
+
 
 const app = express();
 app.use(bodyParser.json());
@@ -95,7 +99,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 
-const PORT = 8080;
+
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
