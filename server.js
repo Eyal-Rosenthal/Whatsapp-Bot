@@ -35,37 +35,6 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
 
-
-  console.log('[Auth] Entering getAuth()');
-  try {
-    if (!projectId) {
-      throw new Error('GCLOUD_PROJECT env variable is not set!');
-    }
-    const secretName = `projects/${projectId}/secrets/keyfile-json/versions/latest`;
-    console.log(`[Auth] About to access secret at: ${secretName}`);
-
-    const [version] = await secretClient.accessSecretVersion({ name: secretName });
-    console.log('[Auth] Accessed secret successfully');
-
-    const payload = version.payload.data.toString('utf8');
-    console.log(`[Auth] Secret payload length: ${payload.length}`);
-
-    const key = JSON.parse(payload);
-    console.log('[Auth] Secret JSON parsed successfully');
-
-    const auth = new google.auth.GoogleAuth({
-      credentials: key,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-    console.log('[Auth] GoogleAuth object created');
-
-    return auth;
-  } catch (error) {
-    console.error('[Auth][ERROR]', error);
-    throw error;
-  }
-}
-
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
   try {
