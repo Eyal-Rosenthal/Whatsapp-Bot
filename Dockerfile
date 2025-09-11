@@ -7,6 +7,8 @@ WORKDIR /app
 # Copy package files and install dependencies
 COPY package*.json ./
 RUN npm install
+npm install @google-cloud/secret-manager
+
 
 # Copy all remaining project files
 COPY . .
