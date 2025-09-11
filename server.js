@@ -1,106 +1,125 @@
-// אם יש שורה כזו, תסיר אותה או תניח אותה רק בסביבה המקומית
-// require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const bodyParser = require('body-parser');
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PORT = process.env.PORT || 8080;
 
+console.log('Starting server.js load...');
 
 const app = express();
 app.use(bodyParser.json());
 
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PORT = process.env.PORT || 8080;
 const sheetId = process.env.GOOGLE_SHEET_ID;
+const projectId = process.env.GCLOUD_PROJECT;
+const whatsappPhone = process.env.WHATSAPP_PHONE;
+
+console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
+
 const secretClient = new SecretManagerServiceClient();
 
 async function getAuth() {
-  const [version] = await secretClient.accessSecretVersion({
-    name: 'projects/' + process.env.GCLOUD_PROJECT + '/secrets/keyfile-json/versions/latest',
-  });
-  const payload = version.payload.data.toString('utf8');
-  const key = JSON.parse(payload);
-
-  return new google.auth.GoogleAuth({
-    credentials: key,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  });
+  console.log('[Auth] Entering getAuth()');
+  try {
+    if (!projectId) {
+      throw new Error('GCLOUD_PROJECT env variable is not set!');
+    }
+    const secretName = `projects/${projectId}/secrets/keyfile-json/versions/latest`;
+    console.log(`[Auth] Trying to access secret: ${secretName}`);
+    const [version] = await secretClient.accessSecretVersion({ name: secretName });
+    console.log('[Auth] Accessed secret successfully');
+    const payload = version.payload.data.toString('utf8');
+    console.log(`[Auth] Secret payload length: ${payload.length}`);
+    const key = JSON.parse(payload);
+    console.log('[Auth] Secret JSON parsed successfully');
+    const auth = new google.auth.GoogleAuth({
+      credentials: key,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+    console.log('[Auth] GoogleAuth object created');
+    return auth;
+  } catch (error) {
+    console.error('[Auth][ERROR]', error);
+    throw error;
+  }
 }
 
 async function getBotFlow() {
-  const auth = await getAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: sheetId,
-    range: 'Sheet1',
-  });
-
-  return res.data.values;
+  console.log('[BotFlow] Entering getBotFlow()');
+  try {
+    const auth = await getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+    console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'Sheet1',
+    });
+    console.log('[BotFlow] Data fetched from Google Sheet');
+    return res.data.values;
+  } catch (error) {
+    console.error('[BotFlow][ERROR]', error);
+    throw error;
+  }
 }
 
 function parseUserStep(userState, sheetData) {
+  console.log(`[Step] Parsing user step: ${userState}`);
   const stages = {};
   for (let i = 1; i < sheetData.length; i++) {
     const row = sheetData[i];
-    stages[row[0]] = row;
+    stages[row] = row;
   }
+  console.log(`[Step] Stage found: ${stages[userState] ? 'yes' : 'no'}`);
   return stages[userState];
 }
 
 app.get('/webhook', (req, res) => {
-  const verifyToken = process.env.VERIFY_TOKEN;
+  console.log('[Webhook][GET] Query:', req.query);
+  const verifyToken = VERIFY_TOKEN;
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
-  console.log('GET /webhook received with:', req.query);
-
   if (mode === 'subscribe' && token === verifyToken) {
-    console.log('WEBHOOK_VERIFIED');
+    console.log('[Webhook][GET] Verification succeeded');
     res.status(200).send(challenge);
   } else {
+    console.warn('[Webhook][GET] Verification failed');
     res.sendStatus(403);
   }
 });
 
 app.post('/webhook', async (req, res) => {
-  const body = req.body;
-
+  console.log('[Webhook][POST] Body:', JSON.stringify(req.body));
   try {
     const sheetData = await getBotFlow();
-
-    // For demo: assume userState '0' (you can extend to track users)
+    // For demo: always at '0'. Extend logic for user state as needed.
     let userState = '0';
     const userRow = parseUserStep(userState, sheetData);
-
     let message = userRow ? userRow[1] + '\n' : 'שלום, איך אפשר לעזור?';
-    if (userRow && userRow[2]) message += `1. ${userRow[2]}\n`;
-    if (userRow && userRow[4]) message += `2. ${userRow[4]}\n`;
-
+    if (userRow && userRow) message += `1. ${userRow}\n`;
+    if (userRow && userRow) message += `2. ${userRow}\n`;
+    console.log(`[Webhook][POST] Replying to ${req.body.from} with message: ${message}`);
     await axios.post(
-      `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE}/messages`,
+      `https://graph.facebook.com/v18.0/${whatsappPhone}/messages`,
       {
         messaging_product: 'whatsapp',
-        to: req.body.from, // reply to the sender dynamically
+        to: req.body.from,
         text: { body: message },
       },
       {
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` },
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
       }
     );
-
+    console.log('[Webhook][POST] Message sent successfully');
     res.sendStatus(200);
   } catch (err) {
-    console.error('Error in POST /webhook:', err);
+    console.error('[Webhook][POST][ERROR]', err);
     res.status(500).send('Internal Server Error');
   }
 });
 
-
-
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`[Server] Server listening on port ${PORT}`);
 });
