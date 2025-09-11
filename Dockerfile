@@ -4,11 +4,17 @@ FROM node:18
 # Set working directory inside the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json, then install dependencies
+# Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install dependencies and verify secret-manager installation
-RUN npm install && npm list @google-cloud/secret-manager
+# Install dependencies
+RUN npm install
+
+# Verify installation of @google-cloud/secret-manager and all modules
+RUN echo "Listing installed node modules:" \
+    && npm ls @google-cloud/secret-manager || echo "@google-cloud/secret-manager NOT found!" \
+    && echo "Listing all top-level modules:" \
+    && ls -l node_modules
 
 # Copy application source code
 COPY . .
@@ -16,5 +22,5 @@ COPY . .
 # Set environment variable for the port
 ENV PORT=8080
 
-# Log startup and run the app
-CMD node -e "console.log('Starting server...'); require('./server.js')"
+# Add startup log before running the app
+CMD node -e "console.log('Starting server from Docker CMD...'); require('./server.js')"
