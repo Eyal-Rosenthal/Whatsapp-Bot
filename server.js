@@ -4,17 +4,23 @@ const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 
-try {
-  require.resolve('@google-cloud/secret-manager');
-  console.log("Module '@google-cloud/secret-manager' found");
-} catch (e) {
-  console.error("Module '@google-cloud/secret-manager' NOT found!", e);
-}
 
-const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const bodyParser = require('body-parser');
 
 console.log('Required modules loaded successfully');
+
+const type = process.env.type;
+const project_id = process.env.project_id;
+const private_key_id = process.env.private_key_id;
+const private_key = process.env.private_key;
+const client_email = process.env.client_email;
+const client_id = process.env.client_id;
+const auth_uri = process.env.auth_uri;
+const token_uri = process.env.token_uri;
+const auth_provider_x509_cert_url = process.env.auth_provider_x509_cert_url;
+const client_x509_cert_url = process.env.client_x509_cert_url;
+const universe_domain = process.env.universe_domain;
+
 
 const app = express();
 app.use(bodyParser.json());
@@ -28,9 +34,7 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
-async function getAuth() {
-  console.log('[Auth] Creating SecretManagerServiceClient instance');
-  const secretClient = new SecretManagerServiceClient();
+
 
   console.log('[Auth] Entering getAuth()');
   try {
