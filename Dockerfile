@@ -10,12 +10,6 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
-# Verify installation of @google-cloud/secret-manager and all modules
-RUN echo "Listing installed node modules:" \
-    && npm ls @google-cloud/secret-manager || echo "@google-cloud/secret-manager NOT found!" \
-    && echo "Listing all top-level modules:" \
-    && ls -l node_modules
-
 # Copy application source code
 COPY . .
 
