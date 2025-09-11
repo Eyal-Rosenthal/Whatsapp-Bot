@@ -4,16 +4,17 @@ FROM node:18
 # Set working directory inside the container
 WORKDIR /app
 
-# Copy package files and install dependencies
+# Copy package.json and package-lock.json, then install dependencies
 COPY package*.json ./
-RUN npm install
-npm install @google-cloud/secret-manager
 
+# Install dependencies and verify secret-manager installation
+RUN npm install && npm list @google-cloud/secret-manager
 
-# Copy all remaining project files
+# Copy application source code
 COPY . .
-# הגדרת הפורט שהאפליקציה מאזינה עליו (כגון 8080)
+
+# Set environment variable for the port
 ENV PORT=8080
 
-# Start the server
-CMD ["node", "server.js"]
+# Log startup and run the app
+CMD node -e "console.log('Starting server...'); require('./server.js')"
