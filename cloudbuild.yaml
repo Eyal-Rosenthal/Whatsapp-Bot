@@ -1,9 +1,33 @@
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/whatsapp-bot', '.']
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/whatsapp-bot'
+      - '.'
+    # אפשר להוסיף אופציה לרוץ עם לוגים מלאים
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "Starting Docker build..."
+        docker build -t gcr.io/$PROJECT_ID/whatsapp-bot .
+        echo "Docker build finished."
+
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/whatsapp-bot']
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/whatsapp-bot'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "Starting Docker push..."
+        docker push gcr.io/$PROJECT_ID/whatsapp-bot
+        echo "Docker push finished."
+
 images:
   - 'gcr.io/$PROJECT_ID/whatsapp-bot'
+
 options:
   logging: CLOUD_LOGGING_ONLY
