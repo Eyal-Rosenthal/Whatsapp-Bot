@@ -1,10 +1,20 @@
+console.log('Starting server.js: loading required modules...');
+
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
+
+try {
+  require.resolve('@google-cloud/secret-manager');
+  console.log("Module '@google-cloud/secret-manager' found");
+} catch (e) {
+  console.error("Module '@google-cloud/secret-manager' NOT found!", e);
+}
+
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const bodyParser = require('body-parser');
 
-console.log('Starting server.js load...');
+console.log('Required modules loaded successfully');
 
 const app = express();
 app.use(bodyParser.json());
@@ -18,27 +28,33 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
-const secretClient = new SecretManagerServiceClient();
-
 async function getAuth() {
+  console.log('[Auth] Creating SecretManagerServiceClient instance');
+  const secretClient = new SecretManagerServiceClient();
+
   console.log('[Auth] Entering getAuth()');
   try {
     if (!projectId) {
       throw new Error('GCLOUD_PROJECT env variable is not set!');
     }
     const secretName = `projects/${projectId}/secrets/keyfile-json/versions/latest`;
-    console.log(`[Auth] Trying to access secret: ${secretName}`);
+    console.log(`[Auth] About to access secret at: ${secretName}`);
+
     const [version] = await secretClient.accessSecretVersion({ name: secretName });
     console.log('[Auth] Accessed secret successfully');
+
     const payload = version.payload.data.toString('utf8');
     console.log(`[Auth] Secret payload length: ${payload.length}`);
+
     const key = JSON.parse(payload);
     console.log('[Auth] Secret JSON parsed successfully');
+
     const auth = new google.auth.GoogleAuth({
       credentials: key,
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
     console.log('[Auth] GoogleAuth object created');
+
     return auth;
   } catch (error) {
     console.error('[Auth][ERROR]', error);
@@ -118,6 +134,15 @@ app.post('/webhook', async (req, res) => {
     console.error('[Webhook][POST][ERROR]', err);
     res.status(500).send('Internal Server Error');
   }
+});
+
+console.log('[Server] Environment variables:', {
+  GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
+  VERIFY_TOKEN: VERIFY_TOKEN ? 'set' : 'unset',
+  WHATSAPP_TOKEN: WHATSAPP_TOKEN ? 'set' : 'unset',
+  GOOGLE_SHEET_ID: sheetId ? 'set' : 'unset',
+  WHATSAPP_PHONE: whatsappPhone ? 'set' : 'unset',
+  PORT,
 });
 
 app.listen(PORT, () => {
