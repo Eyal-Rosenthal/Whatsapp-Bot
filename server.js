@@ -35,9 +35,13 @@ async function getAuth() {
   const jwtClient = new google.auth.JWT(
     client_email,
     null,
-    private_key.replace(/\\n/g, '\n'),
+    private_key,
     ['https://www.googleapis.com/auth/spreadsheets.readonly']
   );
+
+  console.log('client_email:', client_email);
+  console.log('private_key:', private_key ? 'present' : 'missing');
+  console.log('Authorizing JWT client...');
   await jwtClient.authorize();
   return jwtClient;
 }
