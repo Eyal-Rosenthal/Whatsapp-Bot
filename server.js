@@ -34,6 +34,14 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
+const { GoogleAuth } = require('google-auth-library'); // יש להוסיף ל־package.json אם לא קיים
+
+async function getAuth() {
+  const auth = new GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  });
+  return await auth.getClient();
+}
 
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
