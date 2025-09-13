@@ -3,50 +3,81 @@ const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
-console.log('Required modules loaded successfully');
 
-const type = process.env.type;
-const project_id = process.env.project_id;
-const private_key_id = process.env.private_key_id;
-const private_key = process.env.private_key;
-const client_email = process.env.client_email;
-const client_id = process.env.client_id;
-const auth_uri = process.env.auth_uri;
-const token_uri = process.env.token_uri;
-const auth_provider_x509_cert_url = process.env.auth_provider_x509_cert_url;
-const client_x509_cert_url = process.env.client_x509_cert_url;
-const universe_domain = process.env.universe_domain;
+console.log('Required modules loaded successfully');
 
 const app = express();
 app.use(bodyParser.json());
 
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PORT = process.env.PORT || 8080;
-const sheetId = process.env.GOOGLE_SHEET_ID;
-const projectId = process.env.GCLOUD_PROJECT;
-const whatsappPhone = process.env.WHATSAPP_PHONE;
+// קריאת משתני סביבה מה-CLOUDRUN
+const {
+  type,
+  project_id,
+  private_key_id,
+  private_key,
+  client_email,
+  client_id,
+  auth_uri,
+  token_uri,
+  auth_provider_x509_cert_url,
+  client_x509_cert_url,
+  universe_domain,
+  VERIFY_TOKEN,
+  WHATSAPP_TOKEN,
+  PORT = 8080,
+  GOOGLE_SHEET_ID,
+  GCLOUD_PROJECT,
+  WHATSAPP_PHONE,
+} = process.env;
 
-console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
+console.log('[ENV] Loaded environment variables:', {
+  type,
+  project_id,
+  private_key_id,
+  private_key_set: !!private_key,
+  client_email,
+  client_id,
+  auth_uri,
+  token_uri,
+  auth_provider_x509_cert_url,
+  client_x509_cert_url,
+  universe_domain,
+  VERIFY_TOKEN: VERIFY_TOKEN ? 'set' : 'unset',
+  WHATSAPP_TOKEN: WHATSAPP_TOKEN ? 'set' : 'unset',
+  PORT,
+  GOOGLE_SHEET_ID: GOOGLE_SHEET_ID ? 'set' : 'unset',
+  GCLOUD_PROJECT,
+  WHATSAPP_PHONE,
+});
 
+// פונקציה לאישור גישה ל-Google Sheets API עם JWT
 async function getAuth() {
-  // היפוך escape של newlines ב-private_key
-  // והסרת רווחים מיותרים
-  const cleanedPrivateKey = private_key ? private_key.replace(/\\n/g, '\n').trim() : '';
-  const jwtClient = new google.auth.JWT(
-    client_email,
-    null,
-    cleanedPrivateKey,
-    ['https://www.googleapis.com/auth/spreadsheets.readonly']
-  );
-  console.log('private_key:', private_key ? '[set]' : '[unset]');
-  console.log('cleanedPrivateKey:', private_key ? private_key.replace(/\\n/g, '\n') : '[unset]');
+  try {
+    if (!private_key || !client_email) {
+      throw new Error('Missing private_key or client_email in environment variables');
+    }
+    // החלפת כל "\\n" ל-"\n" במפתח הפרטי ליצירת פורמט תקין
+    const cleanedPrivateKey = private_key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
 
-  await jwtClient.authorize();
-  console.log('Authorizing JWT client...');
-  return jwtClient;
+    console.log('cleanedPrivateKey length:', cleanedPrivateKey.length);
+
+    const jwtClient = new google.auth.JWT(
+      client_email,
+      null,
+      cleanedPrivateKey,
+      ['https://www.googleapis.com/auth/spreadsheets.readonly']
+    );
+
+    await jwtClient.authorize();
+    console.log('JWT Client authorized successfully.');
+    return jwtClient;
+  } catch (err) {
+    console.error('[getAuth][ERROR]', err);
+    throw err;
+  }
 }
 
+// פונקציה לקבלת תוכן גיליון Google Sheets
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
   try {
@@ -54,10 +85,10 @@ async function getBotFlow() {
     const sheets = google.sheets({ version: 'v4', auth });
     console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: sheetId,
+      spreadsheetId: GOOGLE_SHEET_ID,
       range: 'Sheet1',
     });
-    console.log('[BotFlow] Data fetched from Google Sheet');
+    console.log('[BotFlow] Data fetched from Google Sheet:', res.data.values ? res.data.values.length + ' rows' : 'no data');
     return res.data.values;
   } catch (error) {
     console.error('[BotFlow][ERROR]', error);
@@ -65,53 +96,63 @@ async function getBotFlow() {
   }
 }
 
+// פונקציה לפרשנות שלבים מהגיליון לפי מזהה מצב משתמש (userState)
 function parseUserStep(userState, sheetData) {
-  console.log(`[Step] Parsing user step: ${userState}`);
+  console.log(`[Step] Parsing user step for userState: ${userState}`);
   const stages = {};
+  if (!sheetData || sheetData.length === 0) {
+    console.warn('[Step] Empty or invalid sheetData');
+    return null;
+  }
+
   for (let i = 1; i < sheetData.length; i++) {
     const row = sheetData[i];
-    // מניח שהעמודה הראשונה בקובץ היא מזהה השלב
     if (row && row[0]) {
       stages[row[0]] = row;
     }
   }
-  console.log(`[Step] Stage found: ${stages[userState] ? 'yes' : 'no'}`);
-  return stages[userState];
+  const foundStage = stages[userState];
+  console.log(`[Step] Stage found: ${foundStage ? 'yes' : 'no'}`);
+  return foundStage || null;
 }
 
+// ניתוב GET לאישור webhook של וואטסאפ
 app.get('/webhook', (req, res) => {
-  console.log('[Webhook][GET] Query:', req.query);
-  const verifyToken = VERIFY_TOKEN;
+  console.log('[Webhook][GET] Incoming verification request:', req.query);
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === verifyToken) {
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('[Webhook][GET] Verification succeeded');
-    res.status(200).send(challenge);
+    return res.status(200).send(challenge);
   } else {
     console.warn('[Webhook][GET] Verification failed');
-    res.sendStatus(403);
+    return res.sendStatus(403);
   }
 });
 
+// ניתוב POST לטיפול בהודעות נכנסות
 app.post('/webhook', async (req, res) => {
-  console.log('[Webhook][POST] Body:', JSON.stringify(req.body));
+  console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
+
   try {
     const sheetData = await getBotFlow();
-    let userState = '0'; // אפשר לשנות או לקרוא מהקלט בפועל
+
+    // לדוגמה: מצב משתמש נקבע ב-0 (אפשר לשפר להסתמך על מזהה משתמש)
+    let userState = '0';
     const userRow = parseUserStep(userState, sheetData);
 
-    let message = userRow ? userRow[1] + '\n' : 'שלום, איך אפשר לעזור?';
+    let message = userRow ? `${userRow[1]}\n` : 'שלום, איך אפשר לעזור?';
     if (userRow) {
       if (userRow[2]) message += `1. ${userRow[2]}\n`;
       if (userRow[3]) message += `2. ${userRow[3]}\n`;
     }
 
-    console.log(`[Webhook][POST] Replying to ${req.body.from} with message: ${message}`);
+    console.log(`[Webhook][POST] Sending reply to ${req.body.from || 'unknown'}:`, message);
 
     await axios.post(
-      `https://graph.facebook.com/v18.0/${whatsappPhone}/messages`,
+      `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
       {
         messaging_product: 'whatsapp',
         to: req.body.from,
@@ -130,15 +171,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-console.log('[Server] Environment variables:', {
-  GCLOUD_PROJECT: projectId,
-  VERIFY_TOKEN: VERIFY_TOKEN ? 'set' : 'unset',
-  WHATSAPP_TOKEN: WHATSAPP_TOKEN ? 'set' : 'unset',
-  GOOGLE_SHEET_ID: sheetId ? 'set' : 'unset',
-  WHATSAPP_PHONE: whatsappPhone ? 'set' : 'unset',
-  PORT,
-});
-
 app.listen(PORT, () => {
-  console.log(`[Server] Server listening on port ${PORT}`);
+  console.log(`[Server] Server is listening on port ${PORT}`);
 });
