@@ -39,6 +39,9 @@ async function getAuth() {
     cleanedPrivateKey,
     ['https://www.googleapis.com/auth/spreadsheets.readonly']
   );
+  console.log('private_key:', private_key ? '[set]' : '[unset]');
+  console.log('cleanedPrivateKey:', private_key ? private_key.replace(/\\n/g, '\n') : '[unset]');
+
   await jwtClient.authorize();
   console.log('Authorizing JWT client...');
   return jwtClient;
