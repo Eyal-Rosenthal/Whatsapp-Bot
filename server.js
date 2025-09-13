@@ -3,8 +3,6 @@ console.log('Starting server.js: loading required modules...');
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
-
-
 const bodyParser = require('body-parser');
 
 console.log('Required modules loaded successfully');
@@ -21,7 +19,6 @@ const auth_provider_x509_cert_url = process.env.auth_provider_x509_cert_url;
 const client_x509_cert_url = process.env.client_x509_cert_url;
 const universe_domain = process.env.universe_domain;
 
-
 const app = express();
 app.use(bodyParser.json());
 
@@ -34,13 +31,15 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
-const { GoogleAuth } = require('google-auth-library'); // יש להוסיף ל־package.json אם לא קיים
-
 async function getAuth() {
-  const auth = new GoogleAuth({
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  });
-  return await auth.getClient();
+  const jwtClient = new google.auth.JWT(
+    client_email,
+    null,
+    private_key.replace(/\\n/g, '\n'),
+    ['https://www.googleapis.com/auth/spreadsheets.readonly']
+  );
+  await jwtClient.authorize();
+  return jwtClient;
 }
 
 async function getBotFlow() {
@@ -91,7 +90,6 @@ app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Body:', JSON.stringify(req.body));
   try {
     const sheetData = await getBotFlow();
-    // For demo: always at '0'. Extend logic for user state as needed.
     let userState = '0';
     const userRow = parseUserStep(userState, sheetData);
     let message = userRow ? userRow[1] + '\n' : 'שלום, איך אפשר לעזור?';
