@@ -50,34 +50,34 @@ console.log('[ENV] Loaded environment variables:', {
   WHATSAPP_PHONE,
 });
 
-function validatePrivateKey(key) {
-  if (!key) {
-    console.error('Private key is missing!');
-    return false;
-  }
-  if (!key.includes('-----BEGIN PRIVATE KEY-----')) {
-    console.error('Private key does not have expected header!');
-    return false;
-  }
-  if (!key.includes('-----END PRIVATE KEY-----')) {
-    console.error('Private key does not have expected footer!');
-    return false;
-  }
-  return true;
-}
+//function validatePrivateKey(key) {
+ // if (!key) {
+   // console.error('Private key is missing!');
+   // return false;
+  //}
+  //if (!key.includes('-----BEGIN PRIVATE KEY-----')) {
+  //  console.error('Private key does not have expected header!');
+  //  return false;
+//  }
+//  if (!key.includes('-----END PRIVATE KEY-----')) {
+//    console.error('Private key does not have expected footer!');
+//    return false;
+//  }
+//  return true;
+//}
 
 // פונקציה לאישור גישה ל-Google Sheets API עם JWT
 async function getAuth() {
-  try {
-    if (!private_key || !client_email) {
-      throw new Error('Missing private_key or client_email in environment variables');
-    }
+  //try {
+    //if (!private_key || !client_email) {
+    //  throw new Error('Missing private_key or client_email in environment variables');
+    //}
     // החלפת כל "\\n" ל-"\n" במפתח הפרטי ליצירת פורמט תקין
-    const cleanedPrivateKey = private_key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+    const cleanedPrivateKey = private_key;//.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
 
-    if (!validatePrivateKey(cleanedPrivateKey)) {
-      throw new Error('Private key format validation failed');
-    }
+    //if (!validatePrivateKey(cleanedPrivateKey)) {
+    //  throw new Error('Private key format validation failed');
+    //}
 
     console.log('cleanedPrivateKey length:', cleanedPrivateKey.length);
 
@@ -95,7 +95,7 @@ async function getAuth() {
     console.error('[getAuth][ERROR]', err.message || err);
     throw err;
   }
-}
+//}
 
 async function checkGoogleAuthToken() {
   try {
