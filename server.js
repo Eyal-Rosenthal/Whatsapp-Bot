@@ -50,6 +50,7 @@ async function getAuth() {
   await jwtClient.authorize();
   return jwtClient;
 }
+  console.log('jwtClient:', jwtClient ? 'present' : 'missing');
 
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
