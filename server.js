@@ -5,8 +5,6 @@ const axios = require('axios');
 const { google } = require('googleapis');
 
 
-const bodyParser = require('body-parser');
-
 console.log('Required modules loaded successfully');
 
 const type = process.env.type;
