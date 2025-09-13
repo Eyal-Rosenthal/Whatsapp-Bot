@@ -50,7 +50,7 @@ console.log('[ENV] Loaded environment variables:', {
   WHATSAPP_PHONE,
 });
 
-//function validatePrivateKey(key) {
+function validatePrivateKey(key) {
   if (!key) {
     console.error('Private key is missing!');
     return false;
