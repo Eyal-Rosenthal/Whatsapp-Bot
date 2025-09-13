@@ -31,26 +31,18 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
-console.log('private_key raw:', process.env.private_key);
-console.log('private_key processed:', private_key);
-
-const cleanedPrivateKey = process.env.private_key.replace(/\\n/g, '\n').replace(/^\s+|\s+$/g, '');
-
 async function getAuth() {
+  const cleanedPrivateKey = private_key.replace(/\\n/g, '\n').trim();
   const jwtClient = new google.auth.JWT(
     client_email,
     null,
     cleanedPrivateKey,
     ['https://www.googleapis.com/auth/spreadsheets.readonly']
   );
-
-  console.log('client_email:', client_email);
-  console.log('private_key:', cleanedPrivateKey ? 'present' : 'missing');
-  console.log('Authorizing JWT client...');
   await jwtClient.authorize();
+  console.log('Authorizing JWT client...');
   return jwtClient;
 }
-
 
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
@@ -126,7 +118,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 console.log('[Server] Environment variables:', {
-  GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
+  GCLOUD_PROJECT: projectId,
   VERIFY_TOKEN: VERIFY_TOKEN ? 'set' : 'unset',
   WHATSAPP_TOKEN: WHATSAPP_TOKEN ? 'set' : 'unset',
   GOOGLE_SHEET_ID: sheetId ? 'set' : 'unset',
