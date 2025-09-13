@@ -50,6 +50,22 @@ console.log('[ENV] Loaded environment variables:', {
   WHATSAPP_PHONE,
 });
 
+function validatePrivateKey(key) {
+  if (!key) {
+    console.error('Private key is missing!');
+    return false;
+  }
+  if (!key.includes('-----BEGIN PRIVATE KEY-----')) {
+    console.error('Private key does not have expected header!');
+    return false;
+  }
+  if (!key.includes('-----END PRIVATE KEY-----')) {
+    console.error('Private key does not have expected footer!');
+    return false;
+  }
+  return true;
+}
+
 // פונקציה לאישור גישה ל-Google Sheets API עם JWT
 async function getAuth() {
   try {
@@ -58,6 +74,10 @@ async function getAuth() {
     }
     // החלפת כל "\\n" ל-"\n" במפתח הפרטי ליצירת פורמט תקין
     const cleanedPrivateKey = private_key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+
+    if (!validatePrivateKey(cleanedPrivateKey)) {
+      throw new Error('Private key format validation failed');
+    }
 
     console.log('cleanedPrivateKey length:', cleanedPrivateKey.length);
 
@@ -72,12 +92,25 @@ async function getAuth() {
     console.log('JWT Client authorized successfully.');
     return jwtClient;
   } catch (err) {
-    console.error('[getAuth][ERROR]', err);
+    console.error('[getAuth][ERROR]', err.message || err);
     throw err;
   }
 }
 
-// פונקציה לקבלת תוכן גיליון Google Sheets
+async function checkGoogleAuthToken() {
+  try {
+    const auth = await getAuth();
+    console.log('[AuthCheck] Google Auth Token is valid');
+    return true;
+  } catch (error) {
+    console.error('[AuthCheck][ERROR]', error.message);
+    return false;
+  }
+}
+
+// קריאה ראשונית במהלך התחלת השרת לאימות המפתח
+checkGoogleAuthToken();
+
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
   try {
@@ -96,7 +129,6 @@ async function getBotFlow() {
   }
 }
 
-// פונקציה לפרשנות שלבים מהגיליון לפי מזהה מצב משתמש (userState)
 function parseUserStep(userState, sheetData) {
   console.log(`[Step] Parsing user step for userState: ${userState}`);
   const stages = {};
@@ -116,7 +148,6 @@ function parseUserStep(userState, sheetData) {
   return foundStage || null;
 }
 
-// ניתוב GET לאישור webhook של וואטסאפ
 app.get('/webhook', (req, res) => {
   console.log('[Webhook][GET] Incoming verification request:', req.query);
   const mode = req.query['hub.mode'];
@@ -132,14 +163,12 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ניתוב POST לטיפול בהודעות נכנסות
 app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
 
   try {
     const sheetData = await getBotFlow();
 
-    // לדוגמה: מצב משתמש נקבע ב-0 (אפשר לשפר להסתמך על מזהה משתמש)
     let userState = '0';
     const userRow = parseUserStep(userState, sheetData);
 
