@@ -34,16 +34,18 @@ console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOK
 console.log('private_key raw:', process.env.private_key);
 console.log('private_key processed:', private_key);
 
+const cleanedPrivateKey = process.env.private_key.replace(/\\n/g, '\n').replace(/^\s+|\s+$/g, '');
+
 async function getAuth() {
   const jwtClient = new google.auth.JWT(
     client_email,
     null,
-    private_key.replace(/\\n/g, '\n'),
+    cleanedPrivateKey,
     ['https://www.googleapis.com/auth/spreadsheets.readonly']
   );
 
   console.log('client_email:', client_email);
-  console.log('private_key:', private_key ? 'present' : 'missing');
+  console.log('private_key:', cleanedPrivateKey ? 'present' : 'missing');
   console.log('Authorizing JWT client...');
   await jwtClient.authorize();
   return jwtClient;
