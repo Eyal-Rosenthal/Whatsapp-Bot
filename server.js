@@ -1,10 +1,8 @@
 console.log('Starting server.js: loading required modules...');
-
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
-
 console.log('Required modules loaded successfully');
 
 const type = process.env.type;
@@ -32,7 +30,9 @@ const whatsappPhone = process.env.WHATSAPP_PHONE;
 console.log(`[ENV] VERIFY_TOKEN: ${VERIFY_TOKEN ? 'set' : 'unset'}, WHATSAPP_TOKEN: ${WHATSAPP_TOKEN ? 'set' : 'unset'}, PORT: ${PORT}, GOOGLE_SHEET_ID: ${sheetId ? 'set' : 'unset'}, GCLOUD_PROJECT: ${projectId ? projectId : 'unset'}, WHATSAPP_PHONE: ${whatsappPhone ? 'set' : 'unset'}`);
 
 async function getAuth() {
-  const cleanedPrivateKey = private_key.replace(/\\n/g, '\n').trim();
+  // היפוך escape של newlines ב-private_key
+  // והסרת רווחים מיותרים
+  const cleanedPrivateKey = private_key ? private_key.replace(/\\n/g, '\n').trim() : '';
   const jwtClient = new google.auth.JWT(
     client_email,
     null,
@@ -67,7 +67,10 @@ function parseUserStep(userState, sheetData) {
   const stages = {};
   for (let i = 1; i < sheetData.length; i++) {
     const row = sheetData[i];
-    stages[row] = row;
+    // מניח שהעמודה הראשונה בקובץ היא מזהה השלב
+    if (row && row[0]) {
+      stages[row[0]] = row;
+    }
   }
   console.log(`[Step] Stage found: ${stages[userState] ? 'yes' : 'no'}`);
   return stages[userState];
@@ -79,6 +82,7 @@ app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
+
   if (mode === 'subscribe' && token === verifyToken) {
     console.log('[Webhook][GET] Verification succeeded');
     res.status(200).send(challenge);
@@ -92,12 +96,17 @@ app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Body:', JSON.stringify(req.body));
   try {
     const sheetData = await getBotFlow();
-    let userState = '0';
+    let userState = '0'; // אפשר לשנות או לקרוא מהקלט בפועל
     const userRow = parseUserStep(userState, sheetData);
+
     let message = userRow ? userRow[1] + '\n' : 'שלום, איך אפשר לעזור?';
-    if (userRow && userRow) message += `1. ${userRow}\n`;
-    if (userRow && userRow) message += `2. ${userRow}\n`;
+    if (userRow) {
+      if (userRow[2]) message += `1. ${userRow[2]}\n`;
+      if (userRow[3]) message += `2. ${userRow[3]}\n`;
+    }
+
     console.log(`[Webhook][POST] Replying to ${req.body.from} with message: ${message}`);
+
     await axios.post(
       `https://graph.facebook.com/v18.0/${whatsappPhone}/messages`,
       {
@@ -109,6 +118,7 @@ app.post('/webhook', async (req, res) => {
         headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
       }
     );
+
     console.log('[Webhook][POST] Message sent successfully');
     res.sendStatus(200);
   } catch (err) {
