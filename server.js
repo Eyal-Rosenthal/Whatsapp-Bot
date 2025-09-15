@@ -1,6 +1,4 @@
-// server.js
-
-console.log('Starting server.js: loading required modules...');
+console.log('Starting server.js: loading required modules.');
 
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +6,8 @@ const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
+
+console.log('Required modules loaded successfully');
 
 const app = express();
 app.use(bodyParser.json());
@@ -27,10 +27,10 @@ const {
   WHATSAPP_TOKEN,
   PORT = 8080,
   GOOGLE_SHEET_ID,
+  GCLOUD_PROJECT,
   WHATSAPP_PHONE,
 } = process.env;
 
-// כתיבת קרדנצ'יאלז לקובץ להרשאות ה-Google Sheets
 const credentials = {
   type,
   project_id,
@@ -43,243 +43,260 @@ const credentials = {
   auth_provider_x509_cert_url,
   client_x509_cert_url,
 };
+
 const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
+console.log('[ENV] credentials.json file created at', keyFilePath);
 
 async function getAuth() {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: keyFilePath,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  });
-  return auth.getClient();
+  try {
+    const auth = new google.auth.GoogleAuth({
+      keyFile: keyFilePath,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+    const jwtClient = await auth.getClient();
+    console.log('JWT Client authorized successfully.');
+    return jwtClient;
+  } catch (err) {
+    console.error('[getAuth][ERROR]', err.message || err);
+    throw err;
+  }
 }
 
-// -------- Google Sheet cache --------
 let sheetDataCached = null;
 
 async function loadBotFlowCache() {
-  const auth = await getAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID,
-    range: 'Sheet1',
-  });
-  sheetDataCached = res.data.values || [];
+  try {
+    console.log('[BotFlow] Loading and caching bot flow data.');
+    const auth = await getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: 'Sheet1',
+    });
+    sheetDataCached = res.data.values || [];
+    console.log(`[BotFlow] Cached ${sheetDataCached.length} rows from Google Sheet`);
+  } catch (error) {
+    console.error('[BotFlow][ERROR] Loading bot flow cache failed:', error);
+    sheetDataCached = null;
+  }
 }
 
-// טוען cache בהפעלה
-loadBotFlowCache().catch(() => { sheetDataCached = null; });
+loadBotFlowCache();
 
-// עוזר: מוצא שורה לפי מזהה מצב (עמודה 0)
-function findStageRow(stageId) {
-  if (!sheetDataCached) return null;
-  return sheetDataCached.find(row => row[0] === stageId);
-}
-
-// עוזר: מרכיב הודעה לפי שורה (עמודה 1 = טקסט; אחר כך זוגות OptionText/Next)
 function composeMessage(row) {
   if (!row || !row[1]) return 'שגיאה בטעינת הודעה';
   let msg = row[1] + '\n';
-  let optionIdx = 1;
+  let optionCount = 1;
   for (let i = 2; i < row.length; i += 2) {
-    const optionText = row[i];
-    if (optionText && String(optionText).trim()) {
-      msg += `${optionIdx}. ${optionText}\n`;
-      optionIdx++;
+    if (row[i] && row[i].trim()) {
+      msg += `${optionCount}. ${row[i]}\n`;
+      optionCount++;
     }
   }
-  return msg.trim();
+  return msg;
 }
 
-// עוזר: מחשב מספר אפשרויות חוקיות בשורה
-function countValidOptions(row) {
-  let count = 0;
-  for (let i = 2; i < row.length; i += 2) {
-    if (row[i] && String(row[i]).trim()) count++;
-  }
-  return count;
-}
+// מצב לכל משתמש
+const userStates = new Map();   // from -> 'stageId'
+const userFlags  = new Map();   // from -> { justReset: boolean }
 
-// עוזר: מקבל בחירה מספרית (1..n) ומחזיר מזהה המצב הבא מהעמודה המתאימה
-function getNextStageBySelection(row, selectionNumber) {
-  // עבור בחירה k (1-based): עמודת next תהיה ב- index = 2*k + 1
-  const nextIndex = 2 * selectionNumber + 1;
-  return row[nextIndex];
-}
-
-// --------- ניהול מצבים פר-משתמש ---------
-// לכל משתמש נשמור אובייקט: { stage: 'id', justEnteredZero: boolean }
-const userStates = new Map();
-
-function getOrInitUserState(userId) {
-  if (!userStates.has(userId)) {
-    userStates.set(userId, { stage: '0', justEnteredZero: true });
-  }
-  return userStates.get(userId);
-}
-
-function resetToZero(userId) {
-  userStates.set(userId, { stage: '0', justEnteredZero: true });
-}
-
-// -------- WhatsApp helpers --------
-
-// חילוץ מידע מה-webhook של WhatsApp Cloud API או פורמט "פשוט"
-function extractIncoming(reqBody) {
-  // נסיון ל-Cloud API
-  try {
-    const entry = reqBody.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
-    const msg = value?.messages?.[0];
-    if (msg) {
-      const from = msg.from;
-      const text = (msg.text && msg.text.body) ? msg.text.body : '';
-      return { from, text };
-    }
-  } catch (_) {}
-  // פורמט פשוט כפי שהופיע בקוד הקודם
-  const from = reqBody.from || 'unknown';
-  const text = reqBody.text?.body || reqBody.message || '';
-  return { from, text };
-}
-
-async function sendWhatsAppText(to, message) {
-  if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE) {
-    // במידה והסביבה לא מוגדרת, לא נכשלים—רק מדפיסים לוג
-    console.log('[WhatsApp] Missing token/phone. Message would be:\n', message);
-    return;
-  }
-  await axios.post(
-    `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to,
-      text: { body: message },
-    },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-  );
-}
-
-// ------------ Routes ------------
-
-// אימות webhook (GET)
+// אימות webhook
 app.get('/webhook', (req, res) => {
+  console.log('[Webhook][GET] Verification request:', req.query);
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
+
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('[Webhook][GET] Verification succeeded');
     return res.status(200).send(challenge);
+  } else {
+    console.warn('[Webhook][GET] Verification failed');
+    return res.sendStatus(403);
   }
-  return res.sendStatus(403);
 });
 
-// הודעות נכנסות (POST)
 app.post('/webhook', async (req, res) => {
+  console.log('[Webhook][POST] =============START REQUEST=============');
+  console.log('[Webhook][POST] Full request body:', JSON.stringify(req.body, null, 2));
+
   try {
-    // ודא שיש cache
     if (!sheetDataCached) {
+      console.warn('[Webhook][POST] No cached sheet data available');
       await loadBotFlowCache();
       if (!sheetDataCached) {
         return res.status(500).json({ error: 'Failed to load bot flow data' });
       }
     }
 
-    const { from, text } = extractIncoming(req.body);
-    const userText = String(text || '').trim();
-    if (!from) {
-      return res.sendStatus(200); // אין למי להגיב
+    const from = req.body.from || 'unknown';
+    console.log('[Webhook][POST] User:', from);
+
+    let userInput = '';
+    if (req.body.text && req.body.text.body) {
+      userInput = req.body.text.body.trim();
+    } else if (req.body.message) {
+      userInput = req.body.message.trim();
+    }
+    userInput = (userInput || '').toLowerCase();
+    console.log('[Webhook][POST] User input:', userInput);
+
+    // אתחול משתמש חדש: תמיד מצב "0" והתעלמות מהודעה ראשונה (גם אם מספר)
+    if (!userStates.has(from)) {
+      userStates.set(from, '0');
+      userFlags.set(from, { justReset: true });
     }
 
-    // שליפת מצב משתמש
-    const state = getOrInitUserState(from);
-    let currentStage = state.stage;
+    let currentStage = userStates.get(from);
+    let flags = userFlags.get(from) || { justReset: false };
+    console.log('[Webhook][POST] Current stage:', currentStage, 'Flags:', flags);
 
     // איתור שורת המצב
-    let stageRow = findStageRow(currentStage);
+    let stageRow = sheetDataCached.find(row => row[0] === currentStage);
     if (!stageRow) {
-      // אם חסר בשיט—חוזרים ל-0
-      resetToZero(from);
-      stageRow = findStageRow('0');
+      currentStage = '0';
+      userStates.set(from, currentStage);
+      flags.justReset = true; // אין שורה למצב? חזרה ל-0 כמו התחלה
+      userFlags.set(from, flags);
+      stageRow = sheetDataCached.find(row => row[0] === currentStage);
     }
+    console.log('[Webhook][POST] Stage row found:', !!stageRow);
 
-    // ניתוח בחירה
-    const selectedOption = parseInt(userText, 10);
-    const isValidNumber = !isNaN(selectedOption);
+    // כמה אופציות קיימות בשורה (טקסטים ב-2,4,6... ויעדי-מצב ב-3,5,7...)
+    const countOptions = () => {
+      let count = 0;
+      for (let i = 2; i < stageRow.length; i += 2) {
+        if (stageRow[i] && stageRow[i].trim()) count++;
+      }
+      return count;
+    };
+    const validOptionsCount = countOptions();
 
-    // ----- לוגיקת שלב 0 -----
+    const selectedOption = parseInt(userInput, 10);
+    const isNumeric = !isNaN(selectedOption);
+
+    // ===== לוגיקת מצב 0 =====
     if (currentStage === '0') {
-      // אם זה ממש כניסה/Reset טרייה—מתעלמים מהבחירה הראשונה, מציגים תפריט, ומבטלים את הדגל
-      if (state.justEnteredZero) {
-        state.justEnteredZero = false;
-        const menu = composeMessage(stageRow);
-        await sendWhatsAppText(from, menu);
-        return res.sendStatus(200);
+      // ההודעה הראשונה אחרי התחלה/איפוס: הצג תפריט והתעלם מקלט
+      if (flags.justReset) {
+        flags.justReset = false;
+        userFlags.set(from, flags);
+        const responseMessage = composeMessage(stageRow);
+        console.log('[Webhook][POST] Initial/reset message -> show menu only');
+        return res.status(200).json({
+          message: 'שלום! אנא בחר אפשרות מהתפריט להמשך.',
+          data: responseMessage,
+        });
       }
 
-      // אם זו לא ההודעה הראשונה מאז שנכנס ל-0—כעת יש להתקדם לפי בחירה חוקית
-      const validOptions = countValidOptions(stageRow);
-      if (isValidNumber && selectedOption >= 1 && selectedOption <= validOptions) {
-        const nextStage = getNextStageBySelection(stageRow, selectedOption);
+      // לאחר שכבר הצגנו את תפריט 0, ניתן להתקדם לפי בחירה תקפה
+      if (isNumeric && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+        const nextStageColIndex = 2 * selectedOption + 1; // 1→3, 2→5 ...
+        const nextStage = stageRow[nextStageColIndex];
 
-        // טיפול ב-final
-        if (nextStage && String(nextStage).toLowerCase() === 'final') {
-          resetToZero(from);
-          const initialRow = findStageRow('0');
-          await sendWhatsAppText(from, composeMessage(initialRow));
-          return res.sendStatus(200);
+        // אם הבחירה אינה מובילה לשלב, חזרה ל-0
+        if (!nextStage || !String(nextStage).trim()) {
+          userStates.set(from, '0');
+          userFlags.set(from, { justReset: true });
+          const initialStageRow = sheetDataCached.find(row => row[0] === '0');
+          const initialMessage = composeMessage(initialStageRow);
+          console.log('[Webhook][POST] Option at stage 0 had no next stage -> reset to 0');
+          return res.status(200).json({
+            message: 'הגעת לסיום השיחה. חוזר לתפריט הראשי.',
+            data: initialMessage,
+          });
         }
 
-        if (nextStage && nextStage !== currentStage) {
-          state.stage = String(nextStage);
-          state.justEnteredZero = false;
-          stageRow = findStageRow(state.stage);
-          await sendWhatsAppText(from, composeMessage(stageRow));
-          return res.sendStatus(200);
-        }
+        // עדכון למצב הבא
+        userStates.set(from, String(nextStage));
+        currentStage = String(nextStage);
+        stageRow = sheetDataCached.find(row => row[0] === currentStage);
+
+        const responseMessage = composeMessage(stageRow);
+        console.log('[Webhook][POST] Advanced from stage 0 to:', currentStage);
+        return res.status(200).json({
+          message: 'מעבר לשלב הבא בוצע.',
+          data: responseMessage,
+        });
       }
 
-      // בחירה לא תקינה / אין בחירה => הצגת תפריט שוב
-      await sendWhatsAppText(from, composeMessage(stageRow));
-      return res.sendStatus(200);
+      // קלט לא תקף במצב 0 (אחרי שהוצג תפריט): הצג תפריט + שגיאה
+      const responseMessage = `בחרת אפשרות לא תקינה${isNumeric ? ` (${userInput})` : ''}. אנא בחר מספר תקף מהתפריט:\n` + composeMessage(stageRow);
+      console.log('[Webhook][POST] Invalid choice at stage 0 -> show menu again');
+      return res.status(200).json({
+        message: 'בחירה לא תקינה',
+        data: responseMessage,
+      });
     }
 
-    // ----- לוגיקת שלבים שאינם 0 -----
-    const validOptions = countValidOptions(stageRow);
-    if (isValidNumber && selectedOption >= 1 && selectedOption <= validOptions) {
-      const nextStage = getNextStageBySelection(stageRow, selectedOption);
+    // ===== לוגיקת מעבר במצבים שאינם 0 =====
+    if (isNumeric && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+      const nextStageColIndex = 2 * selectedOption + 1;
+      const nextStage = stageRow[nextStageColIndex];
+      console.log('[Webhook][POST] Next stage candidate:', nextStage);
 
+      // הגעה לסוף/FINAL → חזרה ל-0
       if (nextStage && String(nextStage).toLowerCase() === 'final') {
-        // הגעה לסוף — חזרה ל-0, והודעת תפריט
-        resetToZero(from);
-        const initialRow = findStageRow('0');
-        await sendWhatsAppText(from, composeMessage(initialRow));
-        return res.sendStatus(200);
+        userStates.set(from, '0');
+        userFlags.set(from, { justReset: true });
+        const initialStageRow = sheetDataCached.find(row => row[0] === '0');
+        const initialMessage = composeMessage(initialStageRow);
+        console.log('[Webhook][POST] Final stage reached -> reset to 0');
+        return res.status(200).json({
+          message: 'הגעת לסיום השיחה. חוזר לתפריט הראשי.',
+          data: initialMessage,
+        });
       }
 
-      if (nextStage && nextStage !== currentStage) {
-        state.stage = String(nextStage);
-        state.justEnteredZero = false;
-        const nextRow = findStageRow(state.stage);
-        await sendWhatsAppText(from, composeMessage(nextRow));
-        return res.sendStatus(200);
+      // אם אין יעד-מצב מוגדר או שהוא ריק → נחשב סיום ונאפס
+      if (!nextStage || !String(nextStage).trim()) {
+        userStates.set(from, '0');
+        userFlags.set(from, { justReset: true });
+        const initialStageRow = sheetDataCached.find(row => row[0] === '0');
+        const initialMessage = composeMessage(initialStageRow);
+        console.log('[Webhook][POST] No next stage (implicit final) -> reset to 0');
+        return res.status(200).json({
+          message: 'הגעת לסיום השיחה. חוזר לתפריט הראשי.',
+          data: initialMessage,
+        });
       }
+
+      // מעבר תקין
+      userStates.set(from, String(nextStage));
+      currentStage = String(nextStage);
+      stageRow = sheetDataCached.find(row => row[0] === currentStage);
+      console.log('[Webhook][POST] Updated user state to:', currentStage);
     } else {
-      // טעות קלט — מציגים שגיאה + תפריט המצב הנוכחי
-      const errorMsg = `בחירה לא תקינה (${userText}). אנא בחר מספר תקף מהתפריט:\n\n`;
-      await sendWhatsAppText(from, errorMsg + composeMessage(stageRow));
-      return res.sendStatus(200);
+      // בחירה לא תקינה
+      const errorMsg = `בחרת אפשרות לא תקינה${userInput ? ` (${userInput})` : ''}. אנא בחר מספר תקף מהתפריט:\n`;
+      const responseMessage = errorMsg + composeMessage(stageRow);
+      console.log('[Webhook][POST] Sending error response with current menu');
+      return res.status(200).json({
+        message: 'בחירה לא תקינה',
+        data: responseMessage,
+      });
     }
 
-    // אם לא בוצעה התקדמות — החזרת תפריט המצב הנוכחי
-    await sendWhatsAppText(from, composeMessage(stageRow));
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error('[Webhook][POST][ERROR]', err);
-    return res.status(500).json({ error: 'שגיאה פנימית בשרת' });
+    // שליחת התוכן של המצב הנוכחי לאחר עדכון (או ללא שינוי אם לא היה מעבר)
+    const responseMessage = composeMessage(stageRow);
+    console.log('[Webhook][POST] Sending response for stage:', currentStage);
+    console.log('[Webhook][POST] =============END REQUEST=============');
+
+    return res.status(200).json({
+      message: 'נתונים נטענו בהצלחה',
+      data: responseMessage,
+    });
+
+  } catch (error) {
+    console.error('[Webhook][POST][ERROR]', error);
+    return res.status(500).json({
+      error: 'שגיאה פנימית בשרת',
+      details: error.message,
+    });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`[Server] Listening on port ${PORT}`);
+  console.log(`[Server] Server is listening on port ${PORT}`);
 });
