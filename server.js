@@ -146,6 +146,30 @@ app.post('/webhook', async (req, res) => {
     //    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
     //  }
     //);
+
+
+    //simulating response for postman testing
+
+    app.post('/your-endpoint', async (req, res) => {
+  try {
+    // Extract relevant data from the request body
+    const userRequest = req.body;  // adjust this as needed
+
+    // Retrieve data from Google Sheets based on userRequest
+    const relevantData = await getGoogleSheetData(userRequest); // Your existing function
+
+    // Instead of sending message via WhatsApp API, directly send JSON response
+    res.status(200).json({
+      message: 'Data retrieved successfully',
+      data: relevantData,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
+//end of simulating response for postman testing
+
     console.log('[Webhook][POST] Message sent successfully');
     res.sendStatus(200);
   } catch (err) {
