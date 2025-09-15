@@ -129,11 +129,19 @@ app.post('/webhook', async (req, res) => {
     const sheetData = await getBotFlow();
     let userState = '0';
     const userRow = parseUserStep(userState, sheetData);
-    let message = userRow ? `${userRow[1]}\\n` : 'שלום, איך אפשר לעזור?';
-    if (userRow) {
-      if (userRow[2]) message += `1. ${userRow[2]}\\n`;
-      if (userRow[3]) message += `2. ${userRow[3]}\\n`;
-    }
+    //let message = userRow ? `${userRow[1]}\\n` : 'שלום, איך אפשר לעזור?';
+    //if (userRow) {
+    //  if (userRow[2]) message += `1. ${userRow[2]}\\n`;
+    //  if (userRow[3]) message += `2. ${userRow[3]}\\n`;
+    //}
+
+    let message = userRow ? `${userRow[1]}\n` : 'שלום, איך אפשר לעזור?';
+if (userRow) {
+  if (userRow[2]) message += `1. ${userRow[2]}\n`;
+  if (userRow[3]) message += `2. ${userRow[3]}\n`;
+}
+
+
     console.log(`[Webhook][POST] Sending reply to ${req.body.from || 'unknown'}:`, message);
     //await axios.post(
     //  `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
