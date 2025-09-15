@@ -184,13 +184,49 @@ app.post('/webhook', async (req, res) => {
     }
 
     let nextStage = currentStage;
+    
+    // ניתוח האם זוהי אינטראקציה ראשונה (משתמש חדש או בשלב 0)
+    let isNewInteraction = false;
+    if (!userStates.has(from) || currentStage === '0') {
+      isNewInteraction = true;
+    }
 
-    // Check if user input is a valid option selection
-    if (userInput) {
-      const selectedOption = parseInt(userInput, 10);
-      console.log('[Webhook][POST] Parsed user input as number:', selectedOption);
-      
-      // Count valid options in current stage
+    // ניסיון לפרש את הקלט כמספר
+    const selectedOption = parseInt(userInput, 10);
+
+    if (isNewInteraction) {
+      // משתמש חדש או בשלב 0 - תמיד שולחים תפריט ראשוני ללא מעבר מיידי לשלב הבא
+      if (!isNaN(selectedOption) && selectedOption >= 1) {
+        console.log('[Webhook][POST] New user or initial state: ignoring immediate selection, sending initial menu');
+        userStates.set(from, '0');
+        currentStage = '0';
+
+        const stageRow = sheetData.find(row => row[0] === currentStage);
+        const responseMessage = composeMessage(stageRow);
+
+        return res.status(200).json({
+          message: 'Initial menu sent - please choose an option',
+          data: responseMessage,
+        });
+      }
+      // קלט לא תקין או 0 - שולחים את תפריט הפתיחה בלבד
+      else {
+        console.log('[Webhook][POST] New user or initial state: non-numeric input or zero, sending initial menu');
+        userStates.set(from, '0');
+        currentStage = '0';
+
+        const stageRow = sheetData.find(row => row[0] === currentStage);
+        const responseMessage = composeMessage(stageRow);
+
+        return res.status(200).json({
+          message: 'Initial menu sent - please choose an option',
+          data: responseMessage,
+        });
+      }
+    } else {
+      // משתמש קיים שמבצע בחירה - בודקים אם הבחירה תקינה וחוזרים עם תשובה או שגיאה
+
+      // ספירת אפשרויות תקינות בשלב הנוכחי
       let validOptionsCount = 0;
       for (let i = 2; i < stageRow.length; i += 2) {
         if (stageRow[i] && stageRow[i].trim()) {
@@ -199,31 +235,30 @@ app.post('/webhook', async (req, res) => {
       }
       console.log('[Webhook][POST] Valid options count in current stage:', validOptionsCount);
 
-      // Check if input is a valid option number
       if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
         console.log('[Webhook][POST] Processing valid option selection...');
-        
-        // Calculate next stage column index: options at 2,4,6... next stages at 3,5,7...
         const nextStageColIndex = 2 * selectedOption + 1;
         console.log('[Webhook][POST] Next stage column index:', nextStageColIndex);
-        
+
         if (nextStageColIndex < stageRow.length) {
           nextStage = stageRow[nextStageColIndex];
           console.log('[Webhook][POST] Next stage determined:', nextStage);
-          
-          // Handle final stage
+
+          // טיפול בשלב סיום (final)
           if (nextStage && nextStage.toLowerCase() === 'final') {
-            console.log('[Webhook][POST] Reached final stage, ending conversation');
-            userStates.delete(from);
-            console.log('[Webhook][POST] UserStates after deletion:', Array.from(userStates.entries()));
+            console.log('[Webhook][POST] Reached final stage, resetting user to initial state');
+            userStates.set(from, '0');
             
+            const initialStageRow = sheetData.find(row => row[0] === '0');
+            const initialMessage = composeMessage(initialStageRow);
+
             return res.status(200).json({
-              message: 'Conversation ended.',
-              data: 'תודה שיצרת קשר! השיחה הסתיימה.'
+              message: 'Conversation ended. Returning to initial menu.',
+              data: initialMessage,
             });
           }
-          
-          // Update user state to next stage
+
+          // עדכון מצב המשתמש לשלב הבא
           if (nextStage && nextStage !== currentStage) {
             userStates.set(from, nextStage);
             currentStage = nextStage;
@@ -232,59 +267,38 @@ app.post('/webhook', async (req, res) => {
           }
         }
       } else {
-        // Invalid option or first time user - show main menu (stage 0)
-        console.log('[Webhook][POST] Invalid option or first time user - showing main menu');
-        console.log('[Webhook][POST] Input analysis: selectedOption =', selectedOption, 'validOptionsCount =', validOptionsCount);
-        
-        // For invalid options, show error message
-        if (!isNaN(selectedOption) && validOptionsCount > 0) {
-          const errorMsg = `בחרת אפשרות שאינה קיימת (${selectedOption}). אנא בחר מספר בין 1 ל-${validOptionsCount}:\n`;
-          const responseMessage = errorMsg + composeMessage(stageRow);
-          
-          console.log('[Webhook][POST] Sending error response:', responseMessage);
-          return res.status(200).json({
-            message: 'Invalid option selected',
-            data: responseMessage
-          });
-        }
-        
-        // For non-numeric input or first time users, reset to stage 0
-        userStates.set(from, '0');
-        currentStage = '0';
-        console.log('[Webhook][POST] Set user to initial state (stage 0)');
+        // בחירה לא תקינה - חוזרים עם הודעת שגיאה ותפריט של אותו שלב
+        console.log('[Webhook][POST] Invalid option or first time user - sending error message with current menu');
+        const errorMsg = `בחרת אפשרות שאינה קיימת (${selectedOption}). אנא בחר מספר בין 1 ל-${validOptionsCount}:\n`;
+        const responseMessage = errorMsg + composeMessage(stageRow);
+
+        console.log('[Webhook][POST] Sending error response:', responseMessage);
+        return res.status(200).json({
+          message: 'Invalid option selected',
+          data: responseMessage,
+        });
       }
-    } else {
-      // No input provided - show main menu (stage 0)
-      console.log('[Webhook][POST] No input provided - showing main menu');
-      userStates.set(from, '0');
-      currentStage = '0';
-      console.log('[Webhook][POST] Set user to initial state (stage 0)');
     }
 
-    
-    // Get final stage row for response (in case stage changed)
+    // בניית ההודעה הסופית ושליחתה
     const finalStageRow = sheetData.find(row => row[0] === currentStage);
     const responseMessage = composeMessage(finalStageRow);
-    
 
-    
     console.log('[Webhook][POST] Final response message:', responseMessage);
     console.log('[Webhook][POST] Final user state:', currentStage);
     console.log('[Webhook][POST] =============END REQUEST=============');
 
-    
     return res.status(200).json({
       message: 'Data retrieved successfully',
-      data: responseMessage
+      data: responseMessage,
     });
 
-    
   } catch (error) {
     console.error('[Webhook][POST][ERROR] Exception occurred:', error);
     console.error('[Webhook][POST][ERROR] Stack trace:', error.stack);
     return res.status(500).json({ 
       error: 'Internal server error', 
-      details: error.message 
+      details: error.message,
     });
   }
 });
