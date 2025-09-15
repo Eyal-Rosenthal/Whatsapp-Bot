@@ -150,18 +150,18 @@ app.post('/webhook', async (req, res) => {
 
     //simulating response for postman testing
 
-    app.post('/your-endpoint', async (req, res) => {
-  try {
+    // app.post('/your-endpoint', async (req, res) => {
+    //try {
     // Extract relevant data from the request body
-    const userRequest = req.body;  // adjust this as needed
+    //const userRequest = req.body;  // adjust this as needed
 
     // Retrieve data from Google Sheets based on userRequest
-    const relevantData = await getGoogleSheetData(userRequest); // Your existing function
+    //const relevantData = await getGoogleSheetData(userRequest); // Your existing function
 
     // Instead of sending message via WhatsApp API, directly send JSON response
     res.status(200).json({
       message: 'Data retrieved successfully',
-      data: relevantData,
+      data: message,
     });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error', details: error.message });
