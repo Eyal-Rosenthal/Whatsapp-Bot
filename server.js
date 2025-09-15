@@ -272,12 +272,7 @@ app.post('/webhook', async (req, res) => {
     console.log('[Webhook][POST] Final user state:', currentStage);
     console.log('[Webhook][POST] =============END REQUEST=============');
 
-    return res.status(200).json({
-      message: 'Data retrieved successfully',
-      data: responseMessage
-    });
-
-if (nextStage && nextStage.toLowerCase() === 'final') {
+    if (nextStage && nextStage.toLowerCase() === 'final') {
   console.log('[Webhook][POST] Reached final stage, ending conversation');
   userStates.delete(from);
   console.log('[Webhook][POST] UserStates after deletion:', Array.from(userStates.entries()));
@@ -291,8 +286,12 @@ if (nextStage && nextStage.toLowerCase() === 'final') {
     data: 'תודה שיצרת קשר! השיחה הסתיימה.'
   });
 }
+    // return res.status(200).json({
+    //   message: 'Data retrieved successfully',
+    //   data: responseMessage
+    // });
 
-
+    
   } catch (error) {
     console.error('[Webhook][POST][ERROR] Exception occurred:', error);
     console.error('[Webhook][POST][ERROR] Stack trace:', error.stack);
