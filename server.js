@@ -262,6 +262,17 @@ app.post('/webhook', async (req, res) => {
     }
 
     
+    // Get final stage row for response (in case stage changed)
+    const finalStageRow = sheetData.find(row => row[0] === currentStage);
+    const responseMessage = composeMessage(finalStageRow);
+    
+
+    
+    console.log('[Webhook][POST] Final response message:', responseMessage);
+    console.log('[Webhook][POST] Final user state:', currentStage);
+    console.log('[Webhook][POST] =============END REQUEST=============');
+
+    
     return res.status(200).json({
       message: 'Data retrieved successfully',
       data: responseMessage
