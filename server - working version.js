@@ -125,136 +125,87 @@ app.get('/webhook', (req, res) => {
 
 
 
-
-// Handle incoming messages with improved state management and logging
-const userStates = new Map(); // Keep this line if not already present
+// Handle incoming messages
+const userStates = new Map();
 
 app.post('/webhook', async (req, res) => {
-  console.log('[Webhook][POST] =============START REQUEST=============');
-  console.log('[Webhook][POST] Full request body:', JSON.stringify(req.body, null, 2));
-  
+  console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
+
   try {
-    // Extract message details with better error handling
     const from = req.body.from || 'unknown';
-    console.log('[Webhook][POST] Processing message from user:', from);
-    
+
     let userInput = '';
-    if (req.body.text && req.body.text.body) {
-      userInput = req.body.text.body.trim();
-    } else if (req.body.message) {
-      userInput = req.body.message.trim();
-    }
-    console.log('[Webhook][POST] User input extracted:', userInput);
+    if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
+    else if (req.body.message) userInput = req.body.message.trim();
 
-    // Get current user state with logging
     let currentStage = userStates.get(from) || '0';
-    console.log('[Webhook][POST] Current user stage before processing:', currentStage);
-    console.log('[Webhook][POST] UserStates Map contents:', Array.from(userStates.entries()));
 
-    // Fetch sheet data
-    console.log('[Webhook][POST] Fetching bot flow data...');
     const sheetData = await getBotFlow();
 
     // Find current stage row
     let stageRow = sheetData.find(row => row[0] === currentStage);
+
     if (!stageRow) {
-      console.log('[Webhook][POST] Stage not found, defaulting to stage 0');
       currentStage = '0';
       stageRow = sheetData.find(row => row[0] === currentStage);
     }
-    console.log('[Webhook][POST] Current stage row:', stageRow);
 
-    // Function to compose message with options
+    // Function to compose message with options from a stageRow
     function composeMessage(row) {
-      if (!row || !row[1]) return 'שגיאה בטעינת הודעה';
-      
       let msg = row[1] + '\n';
-      let optionCount = 1;
-      
-      // Process options in pairs: option text (col 2,4,6...) + next stage (col 3,5,7...)
-      for (let i = 2; i < row.length; i += 2) {
-        if (row[i] && row[i].trim()) {
-          msg += `${optionCount}. ${row[i]}\n`;
-          optionCount++;
-        }
+      for (let i = 2, optionCount = 1; i < row.length; i += 2, optionCount++) {
+        if (row[i]) msg += `${optionCount}. ${row[i]}\n`;
       }
       return msg;
     }
 
-    let nextStage = currentStage;
-
-    // Process user input if not initial stage or if input provided
+    // Trying to parse user input as option number, only if currentStage not '0'
     if (userInput && currentStage !== '0') {
-      console.log('[Webhook][POST] Processing option selection...');
-      
       const selectedOption = parseInt(userInput, 10);
-      console.log('[Webhook][POST] Parsed selected option:', selectedOption);
-      
-      // Count valid options in current stage
-      let validOptionsCount = 0;
-      for (let i = 2; i < stageRow.length; i += 2) {
-        if (stageRow[i] && stageRow[i].trim()) {
-          validOptionsCount++;
-        }
-      }
-      console.log('[Webhook][POST] Valid options count:', validOptionsCount);
 
-      // Validate option selection
+      // Number of valid options in this stage
+      const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+
       if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-        // Calculate next stage column index: options at 2,4,6... next stages at 3,5,7...
+        // Calculate next stage column index:
+        // options start at col 2 and 4 etc., next stage col is next column (3,5,...)
         const nextStageColIndex = 2 * selectedOption + 1;
-        console.log('[Webhook][POST] Next stage column index:', nextStageColIndex);
-        
-        if (nextStageColIndex < stageRow.length) {
-          nextStage = stageRow[nextStageColIndex];
-          console.log('[Webhook][POST] Next stage determined:', nextStage);
-          
-          // Handle final stage
-          if (nextStage && nextStage.toLowerCase() === 'final') {
-            console.log('[Webhook][POST] Reached final stage, ending conversation');
-            userStates.delete(from);
-            console.log('[Webhook][POST] UserStates after deletion:', Array.from(userStates.entries()));
-            
-            return res.status(200).json({
-              message: 'Conversation ended.',
-              data: 'תודה שיצרת קשר! השיחה הסתיימה.'
-            });
-          }
-          
-          // Update user state
-          if (nextStage && nextStage !== currentStage) {
-            userStates.set(from, nextStage);
-            currentStage = nextStage;
-            console.log('[Webhook][POST] Updated user state to:', nextStage);
-            console.log('[Webhook][POST] UserStates after update:', Array.from(userStates.entries()));
-          }
+        const nextStage = stageRow[nextStageColIndex];
+
+        if (nextStage?.toLowerCase() === 'final') {
+          // End conversation and reset
+          userStates.delete(from);
+          return res.status(200).json({
+            message: 'Conversation ended.',
+            data: 'תודה שיצרת קשר!'
+          });
+        } else if (nextStage) {
+          currentStage = nextStage;
+          userStates.set(from, currentStage);
+          stageRow = sheetData.find(row => row[0] === currentStage);
+        } else {
+          // If no valid next stage, treat as invalid input
+          const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n';
+          return res.status(200).json({
+            message: errorMsg + composeMessage(stageRow),
+            data: errorMsg + composeMessage(stageRow)
+          });
         }
       } else {
-        // Invalid option selected
-        console.log('[Webhook][POST] Invalid option selected:', selectedOption);
-        const errorMsg = `בחרת אפשרות שאינה קיימת (${selectedOption}). אנא בחר מספר בין 1 ל-${validOptionsCount}:\n`;
-        const responseMessage = errorMsg + composeMessage(stageRow);
-        
-        console.log('[Webhook][POST] Sending error response:', responseMessage);
+        // Invalid option input - resend error and options
+        const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n';
         return res.status(200).json({
-          message: 'Invalid option selected',
-          data: responseMessage
+          message: errorMsg + composeMessage(stageRow),
+          data: errorMsg + composeMessage(stageRow)
         });
       }
-    } else {
-      // First time user or returning to initial stage
-      console.log('[Webhook][POST] First time user or returning to initial stage');
-      userStates.set(from, '0');
-      console.log('[Webhook][POST] Set user to initial state');
+    } else if (currentStage === '0') {
+      userStates.set(from, currentStage);
     }
 
-    // Get final stage row for response
-    const finalStageRow = sheetData.find(row => row[0] === currentStage);
-    const responseMessage = composeMessage(finalStageRow);
-    
-    console.log('[Webhook][POST] Final response message:', responseMessage);
-    console.log('[Webhook][POST] Final user state:', currentStage);
-    console.log('[Webhook][POST] =============END REQUEST=============');
+    const responseMessage = composeMessage(stageRow);
+
+    console.log(`[Webhook][POST] Sending reply to ${from}:`, responseMessage);
 
     return res.status(200).json({
       message: 'Data retrieved successfully',
@@ -262,41 +213,44 @@ app.post('/webhook', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[Webhook][POST][ERROR] Exception occurred:', error);
-    console.error('[Webhook][POST][ERROR] Stack trace:', error.stack);
-    return res.status(500).json({ 
-      error: 'Internal server error', 
-      details: error.message 
-    });
+    console.error('[Webhook] Error:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
 
-// async function getBotFlow() {
-//   console.log('[BotFlow] Entering getBotFlow()');
+
+// app.post('/webhook', async (req, res) => {
+//   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
 //   try {
-//     const auth = await getAuth();
-//     const sheets = google.sheets({ version: 'v4', auth });
-//     console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
-    
-//     const res = await sheets.spreadsheets.values.get({
-//       spreadsheetId: GOOGLE_SHEET_ID,
-//       range: 'Sheet1',
-//     });
-    
-//     const rowCount = res.data.values ? res.data.values.length : 0;
-//     console.log('[BotFlow] Data fetched from Google Sheet:', rowCount, 'rows');
-//     console.log('[BotFlow] Sheet data preview:', JSON.stringify(res.data.values?.slice(0, 3), null, 2));
-    
-//     return res.data.values;
-//   } catch (error) {
-//     console.error('[BotFlow][ERROR]', error);
-//     throw error;
-//   }
+//     const sheetData = await getBotFlow();
+//     let userState = '0';
+//     const userRow = parseUserStep(userState, sheetData);
+//     //let message = userRow ? `${userRow[1]}\\n` : 'שלום, איך אפשר לעזור?';
+//     //if (userRow) {
+//     //  if (userRow[2]) message += `1. ${userRow[2]}\\n`;
+//     //  if (userRow[3]) message += `2. ${userRow[3]}\\n`;
+//     //}
+
+//     let message = userRow ? `${userRow[1]}\n` : 'שלום, איך אפשר לעזור?';
+// if (userRow) {
+//   if (userRow[2]) message += `1. ${userRow[2]}\n`;
+//   if (userRow[3]) message += `2. ${userRow[3]}\n`;
 // }
 
 
-
+//     console.log(`[Webhook][POST] Sending reply to ${req.body.from || 'unknown'}:`, message);
+//     //await axios.post(
+//     //  `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+//     //  {
+//     //    messaging_product: 'whatsapp',
+//     //    to: req.body.from,
+//     //    text: { body: message },
+//     //  },
+//     //  {
+//     //    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+//     //  }
+//     //);
 
 
 //     //simulating response for postman testing
