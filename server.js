@@ -126,7 +126,7 @@ app.get('/webhook', (req, res) => {
 
 
 // Handle incoming messages
-const userStates = new Map(); // In-memory user states (stage per user)
+const userStates = new Map();
 
 app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
@@ -134,81 +134,87 @@ app.post('/webhook', async (req, res) => {
   try {
     const from = req.body.from || 'unknown';
 
-    // Extract user input text
     let userInput = '';
     if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
     else if (req.body.message) userInput = req.body.message.trim();
 
-    // Retrieve current stage from userStates, default to '0'
     let currentStage = userStates.get(from) || '0';
 
     const sheetData = await getBotFlow();
 
-    // Find stage row from sheet data by stage number
+    // Find current stage row
     let stageRow = sheetData.find(row => row[0] === currentStage);
 
     if (!stageRow) {
-      // Reset to start if stage not found
       currentStage = '0';
       stageRow = sheetData.find(row => row[0] === currentStage);
     }
 
-    // If user input is a number and not on first input, treat it as option selection
+    // Function to compose message with options from a stageRow
+    function composeMessage(row) {
+      let msg = row[1] + '\n';
+      for (let i = 2, optionCount = 1; i < row.length; i += 2, optionCount++) {
+        if (row[i]) msg += `${optionCount}. ${row[i]}\n`;
+      }
+      return msg;
+    }
+
+    // Trying to parse user input as option number, only if currentStage not '0'
     if (userInput && currentStage !== '0') {
-      const selectedOptionIndex = parseInt(userInput, 10);
-      if (!isNaN(selectedOptionIndex) && selectedOptionIndex > 0) {
-        const nextStageColIndex = 2 * selectedOptionIndex + 1;  // next stage column index
+      const selectedOption = parseInt(userInput, 10);
+
+      // Number of valid options in this stage
+      const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+
+      if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+        // Calculate next stage column index:
+        // options start at col 2 and 4 etc., next stage col is next column (3,5,...)
+        const nextStageColIndex = 2 * selectedOption + 1;
         const nextStage = stageRow[nextStageColIndex];
 
-        if (nextStage) {
-          if (nextStage.toLowerCase() === 'final') {
-            // End conversation and reset state
-            userStates.delete(from);
-            return res.status(200).json({
-              message: 'Conversation ended.',
-              data: 'תודה שיצרת קשר!'
-            });
-          }
-
-          // Update user state and find new stage row
+        if (nextStage?.toLowerCase() === 'final') {
+          // End conversation and reset
+          userStates.delete(from);
+          return res.status(200).json({
+            message: 'Conversation ended.',
+            data: 'תודה שיצרת קשר!'
+          });
+        } else if (nextStage) {
           currentStage = nextStage;
           userStates.set(from, currentStage);
           stageRow = sheetData.find(row => row[0] === currentStage);
         } else {
-          console.warn(`[Webhook] User ${from} selected invalid option: ${selectedOptionIndex}`);
+          // If no valid next stage, treat as invalid input
+          const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n';
+          return res.status(200).json({
+            message: errorMsg + composeMessage(stageRow),
+            data: errorMsg + composeMessage(stageRow)
+          });
         }
+      } else {
+        // Invalid option input - resend error and options
+        const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n';
+        return res.status(200).json({
+          message: errorMsg + composeMessage(stageRow),
+          data: errorMsg + composeMessage(stageRow)
+        });
       }
     } else if (currentStage === '0') {
-      // For first message, just keep stage 0
       userStates.set(from, currentStage);
     }
 
-    // Compose message with real line breaks
-    let message = '';
-    if (stageRow) {
-      message += stageRow[1] + '\n';
+    const responseMessage = composeMessage(stageRow);
 
-      for (let i = 2; i < stageRow.length; i += 2) {
-        if (stageRow[i]) {
-          const optionNum = (i / 2);
-          message += `${optionNum}. ${stageRow[i]}\n`;
-        }
-      }
-    } else {
-      message = 'שלום, איך אפשר לעזור?';
-    }
+    console.log(`[Webhook][POST] Sending reply to ${from}:`, responseMessage);
 
-    console.log(`[Webhook][POST] Sending reply to ${from}:`, message);
-
-    // Respond with real line breaks (client may show as \n but string is correct)
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Data retrieved successfully',
-      data: message
+      data: responseMessage
     });
 
   } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({ error: 'Internal server error', details: error.message });
+    console.error('[Webhook] Error:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
