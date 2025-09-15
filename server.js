@@ -200,7 +200,7 @@ app.post('/webhook', async (req, res) => {
       console.log('[Webhook][POST] Valid options count in current stage:', validOptionsCount);
 
       // Check if input is a valid option number
-      if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+      if (!isNaN(selectedOption) && selectedOption >= 0 && selectedOption <= validOptionsCount) {
         console.log('[Webhook][POST] Processing valid option selection...');
         
         // Calculate next stage column index: options at 2,4,6... next stages at 3,5,7...
