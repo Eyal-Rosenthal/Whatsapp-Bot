@@ -200,7 +200,7 @@ app.post('/webhook', async (req, res) => {
       console.log('[Webhook][POST] Valid options count in current stage:', validOptionsCount);
 
       // Check if input is a valid option number
-      if (!isNaN(selectedOption) && selectedOption >= 0 && selectedOption <= validOptionsCount) {
+      if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
         console.log('[Webhook][POST] Processing valid option selection...');
         
         // Calculate next stage column index: options at 2,4,6... next stages at 3,5,7...
@@ -261,9 +261,12 @@ app.post('/webhook', async (req, res) => {
       console.log('[Webhook][POST] Set user to initial state (stage 0)');
     }
 
+    
     // Get final stage row for response (in case stage changed)
     const finalStageRow = sheetData.find(row => row[0] === currentStage);
     const responseMessage = composeMessage(finalStageRow);
+    
+
     
     console.log('[Webhook][POST] Final response message:', responseMessage);
     console.log('[Webhook][POST] Final user state:', currentStage);
@@ -273,6 +276,22 @@ app.post('/webhook', async (req, res) => {
       message: 'Data retrieved successfully',
       data: responseMessage
     });
+
+if (nextStage && nextStage.toLowerCase() === 'final') {
+  console.log('[Webhook][POST] Reached final stage, ending conversation');
+  userStates.delete(from);
+  console.log('[Webhook][POST] UserStates after deletion:', Array.from(userStates.entries()));
+
+  // אפשר לאפס את המשתמש למצב התחלתי, או פשוט למחוק את המצב ולחכות לפנייה חדשה
+  // החליפו את השורה הבאה אם רוצים לאפס:
+  // userStates.set(from, '0');
+
+  return res.status(200).json({
+    message: 'Conversation ended.',
+    data: 'תודה שיצרת קשר! השיחה הסתיימה.'
+  });
+}
+
 
   } catch (error) {
     console.error('[Webhook][POST][ERROR] Exception occurred:', error);
