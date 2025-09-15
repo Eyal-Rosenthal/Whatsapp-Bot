@@ -123,58 +123,113 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+
+const userStates = new Map(); // In-memory user state store, keyed by user phone or ID
+
 app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
+
   try {
+    const from = req.body.from || 'unknown';
+    let userInput = '';
+
+    // Extract user's message text (adjust depending on your payload structure)
+    if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
+    else if (req.body.message) userInput = req.body.message.trim();
+
+    // Get user's current state or initialize to '0' if new user
+    let userState = userStates.get(from) || '0';
+
     const sheetData = await getBotFlow();
-    let userState = '0';
+
+    // If userState is '0', userInput is general message or number to start flow, else treat as step input
+    if (userState === '0') {
+      // maybe validate input here and assign next step accordingly; example just proceed
+      // For start, keep state '0' to get first row
+    } else {
+      // update userState to userInput assuming it's a valid step number matching a row index
+      userState = userInput;
+    }
+
+    // Store updated state for user
+    userStates.set(from, userState);
+
+    // Parse user step row from data
     const userRow = parseUserStep(userState, sheetData);
-    //let message = userRow ? `${userRow[1]}\\n` : 'שלום, איך אפשר לעזור?';
-    //if (userRow) {
-    //  if (userRow[2]) message += `1. ${userRow[2]}\\n`;
-    //  if (userRow[3]) message += `2. ${userRow[3]}\\n`;
-    //}
 
+    // Compose message: title from column 1, then numbered options from remaining columns
     let message = userRow ? `${userRow[1]}\n` : 'שלום, איך אפשר לעזור?';
-if (userRow) {
-  if (userRow[2]) message += `1. ${userRow[2]}\n`;
-  if (userRow[3]) message += `2. ${userRow[3]}\n`;
-}
 
+    if (userRow) {
+      for (let i = 2; i < userRow.length; i++) {
+        if (userRow[i]) message += `${i - 1}. ${userRow[i]}\n`;
+      }
+    }
 
-    console.log(`[Webhook][POST] Sending reply to ${req.body.from || 'unknown'}:`, message);
-    //await axios.post(
-    //  `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
-    //  {
-    //    messaging_product: 'whatsapp',
-    //    to: req.body.from,
-    //    text: { body: message },
-    //  },
-    //  {
-    //    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
-    //  }
-    //);
+    console.log(`[Webhook][POST] Sending reply to ${from}:`, message);
 
-
-    //simulating response for postman testing
-
-    // app.post('/your-endpoint', async (req, res) => {
-    //try {
-    // Extract relevant data from the request body
-    //const userRequest = req.body;  // adjust this as needed
-
-    // Retrieve data from Google Sheets based on userRequest
-    //const relevantData = await getGoogleSheetData(userRequest); // Your existing function
-
-    // Instead of sending message via WhatsApp API, directly send JSON response
     res.status(200).json({
       message: 'Data retrieved successfully',
-      data: message,
+      data: message
     });
+
   } catch (error) {
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
+
+// app.post('/webhook', async (req, res) => {
+//   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
+//   try {
+//     const sheetData = await getBotFlow();
+//     let userState = '0';
+//     const userRow = parseUserStep(userState, sheetData);
+//     //let message = userRow ? `${userRow[1]}\\n` : 'שלום, איך אפשר לעזור?';
+//     //if (userRow) {
+//     //  if (userRow[2]) message += `1. ${userRow[2]}\\n`;
+//     //  if (userRow[3]) message += `2. ${userRow[3]}\\n`;
+//     //}
+
+//     let message = userRow ? `${userRow[1]}\n` : 'שלום, איך אפשר לעזור?';
+// if (userRow) {
+//   if (userRow[2]) message += `1. ${userRow[2]}\n`;
+//   if (userRow[3]) message += `2. ${userRow[3]}\n`;
+// }
+
+
+//     console.log(`[Webhook][POST] Sending reply to ${req.body.from || 'unknown'}:`, message);
+//     //await axios.post(
+//     //  `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+//     //  {
+//     //    messaging_product: 'whatsapp',
+//     //    to: req.body.from,
+//     //    text: { body: message },
+//     //  },
+//     //  {
+//     //    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+//     //  }
+//     //);
+
+
+//     //simulating response for postman testing
+
+//     // app.post('/your-endpoint', async (req, res) => {
+//     //try {
+//     // Extract relevant data from the request body
+//     //const userRequest = req.body;  // adjust this as needed
+
+//     // Retrieve data from Google Sheets based on userRequest
+//     //const relevantData = await getGoogleSheetData(userRequest); // Your existing function
+
+//     // Instead of sending message via WhatsApp API, directly send JSON response
+//     res.status(200).json({
+//       message: 'Data retrieved successfully',
+//       data: message,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ error: 'Internal server error', details: error.message });
+//   }
+// });
 
 //end of simulating response for postman testing
 
