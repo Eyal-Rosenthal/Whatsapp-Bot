@@ -123,10 +123,10 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-const userStates = new Map(); // In-memory user states (stage per user)
+
 
 // Handle incoming messages
-const userStates = new Map();
+const userStates = new Map(); // In-memory user states (stage per user)
 
 app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
