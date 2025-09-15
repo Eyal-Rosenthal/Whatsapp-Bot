@@ -73,23 +73,49 @@ async function getAuth() {
 })();
 
 // קריאת נתונים מ-Google Sheets
+// async function getBotFlow() {
+//   console.log('[BotFlow] Entering getBotFlow()');
+//   try {
+//     const auth = await getAuth();
+//     const sheets = google.sheets({ version: 'v4', auth });
+//     console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
+//     const res = await sheets.spreadsheets.values.get({
+//       spreadsheetId: GOOGLE_SHEET_ID,
+//       range: 'Sheet1',
+//     });
+//     console.log('[BotFlow] Data fetched from Google Sheet:', res.data.values ? res.data.values.length + ' rows' : 'no data');
+//     return res.data.values;
+//   } catch (error) {
+//     console.error('[BotFlow][ERROR]', error);
+//     throw error;
+//   }
+// }
+
+
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
   try {
     const auth = await getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
     console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
+    
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'Sheet1',
     });
-    console.log('[BotFlow] Data fetched from Google Sheet:', res.data.values ? res.data.values.length + ' rows' : 'no data');
+    
+    const rowCount = res.data.values ? res.data.values.length : 0;
+    console.log('[BotFlow] Data fetched from Google Sheet:', rowCount, 'rows');
+    console.log('[BotFlow] Sheet data preview:', JSON.stringify(res.data.values?.slice(0, 3), null, 2));
+    
     return res.data.values;
   } catch (error) {
     console.error('[BotFlow][ERROR]', error);
     throw error;
   }
 }
+
+
 
 function parseUserStep(userState, sheetData) {
   console.log(`[Step] Parsing user step for userState: ${userState}`);
@@ -272,28 +298,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 
-// async function getBotFlow() {
-//   console.log('[BotFlow] Entering getBotFlow()');
-//   try {
-//     const auth = await getAuth();
-//     const sheets = google.sheets({ version: 'v4', auth });
-//     console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
-    
-//     const res = await sheets.spreadsheets.values.get({
-//       spreadsheetId: GOOGLE_SHEET_ID,
-//       range: 'Sheet1',
-//     });
-    
-//     const rowCount = res.data.values ? res.data.values.length : 0;
-//     console.log('[BotFlow] Data fetched from Google Sheet:', rowCount, 'rows');
-//     console.log('[BotFlow] Sheet data preview:', JSON.stringify(res.data.values?.slice(0, 3), null, 2));
-    
-//     return res.data.values;
-//   } catch (error) {
-//     console.error('[BotFlow][ERROR]', error);
-//     throw error;
-//   }
-// }
+
 
 
 
