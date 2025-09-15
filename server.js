@@ -142,10 +142,10 @@ app.post('/webhook', async (req, res) => {
     //    to: req.body.from,
     //    text: { body: message },
     //  },
-      {
-        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
-      }
-    );
+    //  {
+    //    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+    //  }
+    //);
     console.log('[Webhook][POST] Message sent successfully');
     res.sendStatus(200);
   } catch (err) {
