@@ -262,34 +262,10 @@ app.post('/webhook', async (req, res) => {
     }
 
     
-    // Get final stage row for response (in case stage changed)
-    const finalStageRow = sheetData.find(row => row[0] === currentStage);
-    const responseMessage = composeMessage(finalStageRow);
-    
-
-    
-    console.log('[Webhook][POST] Final response message:', responseMessage);
-    console.log('[Webhook][POST] Final user state:', currentStage);
-    console.log('[Webhook][POST] =============END REQUEST=============');
-
-    if (nextStage && nextStage.toLowerCase() === 'final') {
-  console.log('[Webhook][POST] Reached final stage, ending conversation');
-  userStates.delete(from);
-  console.log('[Webhook][POST] UserStates after deletion:', Array.from(userStates.entries()));
-
-  // אפשר לאפס את המשתמש למצב התחלתי, או פשוט למחוק את המצב ולחכות לפנייה חדשה
-  // החליפו את השורה הבאה אם רוצים לאפס:
-  // userStates.set(from, '0');
-
-  return res.status(200).json({
-    message: 'Conversation ended.',
-    data: 'תודה שיצרת קשר! השיחה הסתיימה.'
-  });
-}
-    // return res.status(200).json({
-    //   message: 'Data retrieved successfully',
-    //   data: responseMessage
-    // });
+    return res.status(200).json({
+      message: 'Data retrieved successfully',
+      data: responseMessage
+    });
 
     
   } catch (error) {
