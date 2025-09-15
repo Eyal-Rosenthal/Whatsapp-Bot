@@ -126,78 +126,84 @@ app.get('/webhook', (req, res) => {
 const userStates = new Map(); // In-memory user states (stage per user)
 
 // Handle incoming messages
+const userStates = new Map();
+
 app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body));
 
   try {
     const from = req.body.from || 'unknown';
-    let userInput = '';
 
+    // Extract user input text
+    let userInput = '';
     if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
     else if (req.body.message) userInput = req.body.message.trim();
 
-    // Get current user stage or start at '0'
+    // Retrieve current stage from userStates, default to '0'
     let currentStage = userStates.get(from) || '0';
 
-    // Parse sheet data
     const sheetData = await getBotFlow();
 
-    // Find the row for the current stage
+    // Find stage row from sheet data by stage number
     let stageRow = sheetData.find(row => row[0] === currentStage);
 
     if (!stageRow) {
-      // If no stage found, reset conversation
+      // Reset to start if stage not found
       currentStage = '0';
       stageRow = sheetData.find(row => row[0] === currentStage);
     }
 
-    // If user sent a number and it's not the first message of the conversation,
-    // update stage accordingly to the next stage from the selected option.
+    // If user input is a number and not on first input, treat it as option selection
     if (userInput && currentStage !== '0') {
       const selectedOptionIndex = parseInt(userInput, 10);
       if (!isNaN(selectedOptionIndex) && selectedOptionIndex > 0) {
-        // Calculate columns in sheet: option names at col 2,4,... next stages col 3,5,...
-        const optionStageIndex = 2 * selectedOptionIndex + 1; // e.g. option 1 -> col 3, option 2 -> col 5
-        const nextStage = stageRow[optionStageIndex];
+        const nextStageColIndex = 2 * selectedOptionIndex + 1;  // next stage column index
+        const nextStage = stageRow[nextStageColIndex];
 
-        if (nextStage && nextStage.toLowerCase() === 'final') {
-          // Reset conversation state when final stage reached
-          userStates.delete(from);
-          res.status(200).json({ message: 'Conversation ended.', data: 'תודה שיצרת קשר!' });
-          return;
-        } else if (nextStage) {
-          // Move to next stage
+        if (nextStage) {
+          if (nextStage.toLowerCase() === 'final') {
+            // End conversation and reset state
+            userStates.delete(from);
+            return res.status(200).json({
+              message: 'Conversation ended.',
+              data: 'תודה שיצרת קשר!'
+            });
+          }
+
+          // Update user state and find new stage row
           currentStage = nextStage;
           userStates.set(from, currentStage);
           stageRow = sheetData.find(row => row[0] === currentStage);
         } else {
-          // Invalid option selected, keep current stage
           console.warn(`[Webhook] User ${from} selected invalid option: ${selectedOptionIndex}`);
         }
       }
     } else if (currentStage === '0') {
-      // On first user message, record state
+      // For first message, just keep stage 0
       userStates.set(from, currentStage);
     }
 
-    // Compose response message from the current stage row
-    let responseMessage = stageRow ? `${stageRow[1]}\n` : 'שלום, איך אפשר לעזור?';
-
+    // Compose message with real line breaks
+    let message = '';
     if (stageRow) {
-      // Compose options list (two options per row, option col 2 and 4)
+      message += stageRow[1] + '\n';
+
       for (let i = 2; i < stageRow.length; i += 2) {
         if (stageRow[i]) {
-          const optionNumber = (i / 2);
-          responseMessage += `${optionNumber}. ${stageRow[i]}\n`;
+          const optionNum = (i / 2);
+          message += `${optionNum}. ${stageRow[i]}\n`;
         }
       }
+    } else {
+      message = 'שלום, איך אפשר לעזור?';
     }
 
-    console.log(`[Webhook][POST] Sending reply to ${from}:`, responseMessage);
+    console.log(`[Webhook][POST] Sending reply to ${from}:`, message);
 
+    // Respond with real line breaks (client may show as \n but string is correct)
     res.status(200).json({
       message: 'Data retrieved successfully',
-      data: responseMessage,
+      data: message
     });
 
   } catch (error) {
@@ -205,6 +211,7 @@ app.post('/webhook', async (req, res) => {
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
+
 
 
 // app.post('/webhook', async (req, res) => {
