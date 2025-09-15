@@ -1,11 +1,14 @@
 console.log('Starting server.js: loading required modules...');
+
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
+
 console.log('Required modules loaded successfully');
+
 const app = express();
 app.use(bodyParser.json());
 
@@ -42,6 +45,7 @@ const credentials = {
   auth_provider_x509_cert_url,
   client_x509_cert_url,
 };
+
 const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
 console.log('[ENV] credentials.json file created at', keyFilePath);
@@ -86,15 +90,11 @@ async function loadBotFlowCache() {
 // טען את הנתונים בשרת בזמן הריצה הראשונית
 loadBotFlowCache();
 
-// למקרה שתרצו רענון לפי זמן ניתן להוסיף setInterval לדוגמה:
-// setInterval(loadBotFlowCache, 1000 * 60 * 5); // רענון כל 5 דקות
-
+// פונקציה להרכבת הודעה עם אפשרויות מתוך שורת מצב
 function composeMessage(row) {
   if (!row || !row[1]) return 'שגיאה בטעינת הודעה';
-  
   let msg = row[1] + '\n';
   let optionCount = 1;
-  
   for (let i = 2; i < row.length; i += 2) {
     if (row[i] && row[i].trim()) {
       msg += `${optionCount}. ${row[i]}\n`;
@@ -104,6 +104,7 @@ function composeMessage(row) {
   return msg;
 }
 
+// מפת זיכרון למצבים
 const userStates = new Map();
 
 app.get('/webhook', (req, res) => {
@@ -111,6 +112,7 @@ app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
+
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('[Webhook][GET] Verification succeeded');
     return res.status(200).send(challenge);
@@ -142,12 +144,12 @@ app.post('/webhook', async (req, res) => {
     } else if (req.body.message) {
       userInput = req.body.message.trim();
     }
+
     console.log('[Webhook][POST] User input:', userInput);
 
     let currentStage = userStates.get(from) || '0';
     console.log('[Webhook][POST] Current stage:', currentStage);
 
-    // קבלת שורה של השלב הנוכחי
     let stageRow = sheetDataCached.find(row => row[0] === currentStage);
     if (!stageRow) {
       currentStage = '0';
@@ -155,43 +157,63 @@ app.post('/webhook', async (req, res) => {
     }
     console.log('[Webhook][POST] Stage row found:', !!stageRow);
 
-    // האם אינטראקציה ראשונה (משתמש חדש/שלב 0)
-    let isNewInteraction = false;
-    if (!userStates.has(from) || currentStage === '0') {
-      isNewInteraction = true;
-    }
-
     const selectedOption = parseInt(userInput, 10);
 
-    if (isNewInteraction) {
-      // משתמש חדש או בשלב 0 - שלח תפריט ראשוני תמיד, ללא מעבר מיידי לכפתור שהזין
-      if (!isNaN(selectedOption) && selectedOption >= 1) {
-        console.log('[Webhook][POST] New user or initial state: ignoring immediate selection, sending initial menu');
-        userStates.set(from, '0');
-        currentStage = '0';
+    if (!userStates.has(from) || currentStage === '0') {
+      // משתמש חדש או שלב 0
 
-        const initialStageRow = sheetDataCached.find(row => row[0] === '0');
-        const responseMessage = composeMessage(initialStageRow);
+      // אם המספר תקף, נסה לעבור לשלב לפי הבחירה במקום להתעלם
+      let validOptionsCount = 0;
+      for (let i = 2; i < stageRow.length; i += 2) {
+        if (stageRow[i] && stageRow[i].trim()) validOptionsCount++;
+      }
 
+      if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+        // חישוב העמודה של השלב הבא
+        const nextStageColIndex = 2 * selectedOption + 1;
+        const nextStage = stageRow[nextStageColIndex];
+        console.log('[Webhook][POST] Next stage for new user/stage 0:', nextStage);
+
+        if (nextStage && nextStage.toLowerCase() === 'final') {
+          // סוף השיחה - איפוס למצב 0
+          userStates.set(from, '0');
+          const initialStageRow = sheetDataCached.find(row => row[0] === '0');
+          const initialMessage = composeMessage(initialStageRow);
+          return res.status(200).json({
+            message: 'Conversation ended. Returning to initial menu.',
+            data: initialMessage,
+          });
+        }
+
+        if (nextStage) {
+          userStates.set(from, nextStage);
+          currentStage = nextStage;
+          stageRow = sheetDataCached.find(row => row[0] === currentStage);
+        }
+
+        const responseMessage = composeMessage(stageRow);
+        console.log('[Webhook][POST] Sending response for updated stage:', currentStage);
         return res.status(200).json({
-          message: 'Initial menu sent - please choose an option',
+          message: 'Data retrieved successfully',
           data: responseMessage,
         });
+
       } else {
-        console.log('[Webhook][POST] New user or initial state: non-numeric input or zero, sending initial menu');
+        // קלט לא חוקי - הצג תפריט התחלה עם הודעת שגיאה אם המספר לא תקף
         userStates.set(from, '0');
         currentStage = '0';
-
         const initialStageRow = sheetDataCached.find(row => row[0] === '0');
-        const responseMessage = composeMessage(initialStageRow);
-
+        const errorMsg = (!isNaN(selectedOption) && selectedOption >= 1)
+          ? ''
+          : 'נא לבחור מספר תקף מתוך האפשרויות:\n';
+        const responseMessage = errorMsg + composeMessage(initialStageRow);
         return res.status(200).json({
           message: 'Initial menu sent - please choose an option',
           data: responseMessage,
         });
       }
     } else {
-      // משתמש קיים עושה בחירה תקינה?
+      // משתמש קיים בשלבים אחרי 0
       let validOptionsCount = 0;
       for (let i = 2; i < stageRow.length; i += 2) {
         if (stageRow[i] && stageRow[i].trim()) validOptionsCount++;
@@ -200,7 +222,7 @@ app.post('/webhook', async (req, res) => {
 
       if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
         const nextStageColIndex = 2 * selectedOption + 1;
-        nextStage = stageRow[nextStageColIndex];
+        const nextStage = stageRow[nextStageColIndex];
         console.log('[Webhook][POST] Next stage:', nextStage);
 
         if (nextStage && nextStage.toLowerCase() === 'final') {
@@ -221,7 +243,7 @@ app.post('/webhook', async (req, res) => {
           console.log('[Webhook][POST] Updated user state to:', currentStage);
         }
       } else {
-        // בחירה לא תקינה - שלח הודעת שגיאה עם תפריט השלב הנוכחי
+        // בחירה לא תקינה
         const errorMsg = `בחרת אפשרות שאינה קיימת (${selectedOption}). אנא בחר מספר בין 1 ל-${validOptionsCount}:\n`;
         const responseMessage = errorMsg + composeMessage(stageRow);
         console.log('[Webhook][POST] Sending error response with current menu');
@@ -232,7 +254,6 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // שליחת תגובה עם ההודעה של השלב הנוכחי
     const responseMessage = composeMessage(stageRow);
     console.log('[Webhook][POST] Sending response for stage:', currentStage);
     console.log('[Webhook][POST] =============END REQUEST=============');
