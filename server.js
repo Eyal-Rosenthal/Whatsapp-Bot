@@ -170,13 +170,13 @@ app.post('/webhook', async (req, res) => {
 
 //end of simulating response for postman testing
 
-    console.log('[Webhook][POST] Message sent successfully');
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('[Webhook][POST][ERROR]', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
+  //  console.log('[Webhook][POST] Message sent successfully');
+  //  res.sendStatus(200);
+  //} catch (err) {
+  //  console.error('[Webhook][POST][ERROR]', err);
+  //  res.status(500).send('Internal Server Error');
+  //}
+//});
 
 app.listen(PORT, () => {
   console.log(`[Server] Server is listening on port ${PORT}`);
