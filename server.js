@@ -73,25 +73,6 @@ async function getAuth() {
 })();
 
 // קריאת נתונים מ-Google Sheets
-// async function getBotFlow() {
-//   console.log('[BotFlow] Entering getBotFlow()');
-//   try {
-//     const auth = await getAuth();
-//     const sheets = google.sheets({ version: 'v4', auth });
-//     console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
-//     const res = await sheets.spreadsheets.values.get({
-//       spreadsheetId: GOOGLE_SHEET_ID,
-//       range: 'Sheet1',
-//     });
-//     console.log('[BotFlow] Data fetched from Google Sheet:', res.data.values ? res.data.values.length + ' rows' : 'no data');
-//     return res.data.values;
-//   } catch (error) {
-//     console.error('[BotFlow][ERROR]', error);
-//     throw error;
-//   }
-// }
-
-
 async function getBotFlow() {
   console.log('[BotFlow] Entering getBotFlow()');
   try {
@@ -114,8 +95,6 @@ async function getBotFlow() {
     throw error;
   }
 }
-
-
 
 function parseUserStep(userState, sheetData) {
   console.log(`[Step] Parsing user step for userState: ${userState}`);
@@ -149,11 +128,8 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-
-
-
 // Handle incoming messages with improved state management and logging
-const userStates = new Map(); // Keep this line if not already present
+const userStates = new Map();
 
 app.post('/webhook', async (req, res) => {
   console.log('[Webhook][POST] =============START REQUEST=============');
@@ -209,12 +185,10 @@ app.post('/webhook', async (req, res) => {
 
     let nextStage = currentStage;
 
-    // Process user input if not initial stage or if input provided
-    if (userInput && currentStage !== '0') {
-      console.log('[Webhook][POST] Processing option selection...');
-      
+    // Check if user input is a valid option selection
+    if (userInput) {
       const selectedOption = parseInt(userInput, 10);
-      console.log('[Webhook][POST] Parsed selected option:', selectedOption);
+      console.log('[Webhook][POST] Parsed user input as number:', selectedOption);
       
       // Count valid options in current stage
       let validOptionsCount = 0;
@@ -223,10 +197,12 @@ app.post('/webhook', async (req, res) => {
           validOptionsCount++;
         }
       }
-      console.log('[Webhook][POST] Valid options count:', validOptionsCount);
+      console.log('[Webhook][POST] Valid options count in current stage:', validOptionsCount);
 
-      // Validate option selection
+      // Check if input is a valid option number
       if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+        console.log('[Webhook][POST] Processing valid option selection...');
+        
         // Calculate next stage column index: options at 2,4,6... next stages at 3,5,7...
         const nextStageColIndex = 2 * selectedOption + 1;
         console.log('[Webhook][POST] Next stage column index:', nextStageColIndex);
@@ -247,7 +223,7 @@ app.post('/webhook', async (req, res) => {
             });
           }
           
-          // Update user state
+          // Update user state to next stage
           if (nextStage && nextStage !== currentStage) {
             userStates.set(from, nextStage);
             currentStage = nextStage;
@@ -256,25 +232,36 @@ app.post('/webhook', async (req, res) => {
           }
         }
       } else {
-        // Invalid option selected
-        console.log('[Webhook][POST] Invalid option selected:', selectedOption);
-        const errorMsg = `בחרת אפשרות שאינה קיימת (${selectedOption}). אנא בחר מספר בין 1 ל-${validOptionsCount}:\n`;
-        const responseMessage = errorMsg + composeMessage(stageRow);
+        // Invalid option or first time user - show main menu (stage 0)
+        console.log('[Webhook][POST] Invalid option or first time user - showing main menu');
+        console.log('[Webhook][POST] Input analysis: selectedOption =', selectedOption, 'validOptionsCount =', validOptionsCount);
         
-        console.log('[Webhook][POST] Sending error response:', responseMessage);
-        return res.status(200).json({
-          message: 'Invalid option selected',
-          data: responseMessage
-        });
+        // For invalid options, show error message
+        if (!isNaN(selectedOption) && validOptionsCount > 0) {
+          const errorMsg = `בחרת אפשרות שאינה קיימת (${selectedOption}). אנא בחר מספר בין 1 ל-${validOptionsCount}:\n`;
+          const responseMessage = errorMsg + composeMessage(stageRow);
+          
+          console.log('[Webhook][POST] Sending error response:', responseMessage);
+          return res.status(200).json({
+            message: 'Invalid option selected',
+            data: responseMessage
+          });
+        }
+        
+        // For non-numeric input or first time users, reset to stage 0
+        userStates.set(from, '0');
+        currentStage = '0';
+        console.log('[Webhook][POST] Set user to initial state (stage 0)');
       }
     } else {
-      // First time user or returning to initial stage
-      console.log('[Webhook][POST] First time user or returning to initial stage');
+      // No input provided - show main menu (stage 0)
+      console.log('[Webhook][POST] No input provided - showing main menu');
       userStates.set(from, '0');
-      console.log('[Webhook][POST] Set user to initial state');
+      currentStage = '0';
+      console.log('[Webhook][POST] Set user to initial state (stage 0)');
     }
 
-    // Get final stage row for response
+    // Get final stage row for response (in case stage changed)
     const finalStageRow = sheetData.find(row => row[0] === currentStage);
     const responseMessage = composeMessage(finalStageRow);
     
@@ -296,43 +283,6 @@ app.post('/webhook', async (req, res) => {
     });
   }
 });
-
-
-
-
-
-
-
-
-//     //simulating response for postman testing
-
-//     // app.post('/your-endpoint', async (req, res) => {
-//     //try {
-//     // Extract relevant data from the request body
-//     //const userRequest = req.body;  // adjust this as needed
-
-//     // Retrieve data from Google Sheets based on userRequest
-//     //const relevantData = await getGoogleSheetData(userRequest); // Your existing function
-
-//     // Instead of sending message via WhatsApp API, directly send JSON response
-//     res.status(200).json({
-//       message: 'Data retrieved successfully',
-//       data: message,
-//     });
-//   } catch (error) {
-//     res.status(500).json({ error: 'Internal server error', details: error.message });
-//   }
-// });
-
-//end of simulating response for postman testing
-
-  //  console.log('[Webhook][POST] Message sent successfully');
-  //  res.sendStatus(200);
-  //} catch (err) {
-  //  console.error('[Webhook][POST][ERROR]', err);
-  //  res.status(500).send('Internal Server Error');
-  //}
-//});
 
 app.listen(PORT, () => {
   console.log(`[Server] Server is listening on port ${PORT}`);
