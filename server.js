@@ -1,4 +1,4 @@
-console.log('Starting server.js: loading required modules.');
+console.log('Starting server.js: loading required modules...');
 
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +12,7 @@ console.log('Required modules loaded successfully');
 const app = express();
 app.use(bodyParser.json());
 
+// משתני סביבה לניהול קובץ credentials
 const {
   type,
   project_id,
@@ -31,6 +32,7 @@ const {
   WHATSAPP_PHONE,
 } = process.env;
 
+// יצירת קובץ credentials.json בזמן ריצה
 const credentials = {
   type,
   project_id,
@@ -48,6 +50,7 @@ const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
 console.log('[ENV] credentials.json file created at', keyFilePath);
 
+// פונקציה לקבלת Google Auth מתוך הקובץ
 async function getAuth() {
   try {
     const auth = new google.auth.GoogleAuth({
@@ -63,47 +66,62 @@ async function getAuth() {
   }
 }
 
-let sheetDataCached = null;
-
-async function loadBotFlowCache() {
+// טעינת cache של הגליון פעם אחת בלבד עם העלאת השרת
+let sheetCache = null;
+async function loadSheetCacheOnce() {
   try {
-    console.log('[BotFlow] Loading and caching bot flow data.');
     const auth = await getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
+    console.log('[BotFlow] Loading sheet data from Google Sheets...');
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'Sheet1',
     });
-    sheetDataCached = res.data.values || [];
-    console.log(`[BotFlow] Cached ${sheetDataCached.length} rows from Google Sheet`);
-  } catch (error) {
-    console.error('[BotFlow][ERROR] Loading bot flow cache failed:', error);
-    sheetDataCached = null;
+    sheetCache = res.data.values;
+    console.log('[BotFlow] Sheet data cached:', sheetCache.length, 'rows');
+  } catch (err) {
+    console.error('[BotFlow][ERROR] Failed to load Google Sheet:', err.message);
+    sheetCache = [];
   }
 }
+loadSheetCacheOnce();
 
-loadBotFlowCache();
+// פונקציה למציאת שורת מצב גליון לפי סטייט
+function getStageRow(stageId) {
+  if (!sheetCache || !sheetCache.length) return null;
+  return sheetCache.find(row => row[0] === stageId);
+}
 
+// פונקציה להצגת הודעת מצב + אפשרויות המספר
 function composeMessage(row) {
-  if (!row || !row[1]) return 'שגיאה בטעינת הודעה';
-  let msg = row[1] + '\n';
-  let optionCount = 1;
+  if (!row || !row[1]) return 'שגיאה - לא נמצא נוסח להודעה';
+  let msg = row[1] + "\n";
+  let optionNum = 1;
   for (let i = 2; i < row.length; i += 2) {
     if (row[i] && row[i].trim()) {
-      msg += `${optionCount}. ${row[i]}\n`;
-      optionCount++;
+      msg += `${optionNum}. ${row[i]}\n`;
+      optionNum++;
     }
   }
-  return msg;
+  return msg.trim();
 }
 
-// מצב לכל משתמש
-const userStates = new Map();   // from -> 'stageId'
-const userFlags  = new Map();   // from -> { justReset: boolean }
+// בדיקה האם מצב הוא מצב סופי
+function isFinalState(row) {
+  if (!row) return false;
+  // מצב סופי: יש נוסח הודעה ולא קיימות עוד אפשרויות
+  for (let i = 2; i < row.length; i++) {
+    if (row[i] && row[i].trim()) return false;
+  }
+  return true;
+}
 
-// אימות webhook
+// ניהול סטייטים של המשתמשים
+const userStates = new Map();
+
+// Webhook Verification
 app.get('/webhook', (req, res) => {
-  console.log('[Webhook][GET] Verification request:', req.query);
+  console.log('[Webhook][GET] Incoming verification request:', req.query);
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -117,183 +135,110 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+// Handle incoming messages
 app.post('/webhook', async (req, res) => {
-  console.log('[Webhook][POST] =============START REQUEST=============');
-  console.log('[Webhook][POST] Full request body:', JSON.stringify(req.body, null, 2));
-
   try {
-    if (!sheetDataCached) {
-      console.warn('[Webhook][POST] No cached sheet data available');
-      await loadBotFlowCache();
-      if (!sheetDataCached) {
-        return res.status(500).json({ error: 'Failed to load bot flow data' });
-      }
-    }
+    // ודא טעינת cache; אם טרם נטען נסה לטעון
+    if (!sheetCache || !sheetCache.length) await loadSheetCacheOnce();
 
     const from = req.body.from || 'unknown';
-    console.log('[Webhook][POST] User:', from);
-
     let userInput = '';
-    if (req.body.text && req.body.text.body) {
-      userInput = req.body.text.body.trim();
-    } else if (req.body.message) {
-      userInput = req.body.message.trim();
-    }
-    userInput = (userInput || '').toLowerCase();
-    console.log('[Webhook][POST] User input:', userInput);
+    if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
+    else if (req.body.message) userInput = req.body.message.trim();
 
-    // אתחול משתמש חדש: תמיד מצב "0" והתעלמות מהודעה ראשונה (גם אם מספר)
-    if (!userStates.has(from)) {
-      userStates.set(from, '0');
-      userFlags.set(from, { justReset: true });
-    }
-
+    // Stage reset: התחלה/סיום סבב או משתמש חדש => אפס למצב 0
     let currentStage = userStates.get(from);
-    let flags = userFlags.get(from) || { justReset: false };
-    console.log('[Webhook][POST] Current stage:', currentStage, 'Flags:', flags);
-
-    // איתור שורת המצב
-    let stageRow = sheetDataCached.find(row => row[0] === currentStage);
-    if (!stageRow) {
+    if (!currentStage) {
       currentStage = '0';
-      userStates.set(from, currentStage);
-      flags.justReset = true; // אין שורה למצב? חזרה ל-0 כמו התחלה
-      userFlags.set(from, flags);
-      stageRow = sheetDataCached.find(row => row[0] === currentStage);
+      userStates.set(from, '0');
+      // נכנס תמיד למצב 0 ללא קשר לקלט
+      const stageRow = getStageRow('0');
+      return res.status(200).json({
+        message: 'התחלת שיחה חדשה',
+        data: composeMessage(stageRow)
+      });
     }
-    console.log('[Webhook][POST] Stage row found:', !!stageRow);
 
-    // כמה אופציות קיימות בשורה (טקסטים ב-2,4,6... ויעדי-מצב ב-3,5,7...)
-    const countOptions = () => {
-      let count = 0;
-      for (let i = 2; i < stageRow.length; i += 2) {
-        if (stageRow[i] && stageRow[i].trim()) count++;
-      }
-      return count;
-    };
-    const validOptionsCount = countOptions();
+    let stageRow = getStageRow(currentStage);
+    if (!stageRow) {
+      // בגליון חסר מצב 0, איפוס
+      userStates.set(from, '0');
+      stageRow = getStageRow('0');
+      return res.status(200).json({
+        message: 'התחלת שיחה חדשה',
+        data: composeMessage(stageRow)
+      });
+    }
+
+    // בדוק אם זה מצב סופי
+    if (isFinalState(stageRow)) {
+      // הראה הודעה של מצב סופי, אפס userStates
+      userStates.delete(from);
+      return res.status(200).json({
+        message: 'סיום שיחה',
+        data: stageRow[1] || 'תודה!'
+      });
+    }
+
+    // טיפול בבחירת המשתמש
+    // book: רק ספרה תקינה בין האפשרויות, אחרת שגיאה וחזרה
+    let validOptionCount = 0;
+    for (let i = 2; i < stageRow.length; i += 2) {
+      if (stageRow[i] && stageRow[i].trim()) validOptionCount++;
+    }
+
+    // הכנת regex לבדוק קלט ספרה תקינה
+    const digitRegex = /^[1-9][0-9]*$/;
+    if (!userInput || !digitRegex.test(userInput)) {
+      // קלט לא תקין: הצג הודעת שגיאה וחזור למצב הנוכחי
+      return res.status(200).json({
+        message: 'לא הקלדת ספרה מתאימה',
+        data: composeMessage(stageRow)
+      });
+    }
 
     const selectedOption = parseInt(userInput, 10);
-    const isNumeric = !isNaN(selectedOption);
-
-    // ===== לוגיקת מצב 0 =====
-    if (currentStage === '0') {
-      // ההודעה הראשונה אחרי התחלה/איפוס: הצג תפריט והתעלם מקלט
-      if (flags.justReset) {
-        flags.justReset = false;
-        userFlags.set(from, flags);
-        const responseMessage = composeMessage(stageRow);
-        console.log('[Webhook][POST] Initial/reset message -> show menu only');
-        return res.status(200).json({
-          message: 'שלום! אנא בחר אפשרות מהתפריט להמשך.',
-          data: responseMessage,
-        });
-      }
-
-      // לאחר שכבר הצגנו את תפריט 0, ניתן להתקדם לפי בחירה תקפה
-      if (isNumeric && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-        const nextStageColIndex = 2 * selectedOption + 1; // 1→3, 2→5 ...
-        const nextStage = stageRow[nextStageColIndex];
-
-        // אם הבחירה אינה מובילה לשלב, חזרה ל-0
-        if (!nextStage || !String(nextStage).trim()) {
-          userStates.set(from, '0');
-          userFlags.set(from, { justReset: true });
-          const initialStageRow = sheetDataCached.find(row => row[0] === '0');
-          const initialMessage = composeMessage(initialStageRow);
-          console.log('[Webhook][POST] Option at stage 0 had no next stage -> reset to 0');
-          return res.status(200).json({
-            message: 'הגעת לסיום השיחה. חוזר לתפריט הראשי.',
-            data: initialMessage,
-          });
-        }
-
-        // עדכון למצב הבא
-        userStates.set(from, String(nextStage));
-        currentStage = String(nextStage);
-        stageRow = sheetDataCached.find(row => row[0] === currentStage);
-
-        const responseMessage = composeMessage(stageRow);
-        console.log('[Webhook][POST] Advanced from stage 0 to:', currentStage);
-        return res.status(200).json({
-          message: 'מעבר לשלב הבא בוצע.',
-          data: responseMessage,
-        });
-      }
-
-      // קלט לא תקף במצב 0 (אחרי שהוצג תפריט): הצג תפריט + שגיאה
-      const responseMessage = `בחרת אפשרות לא תקינה${isNumeric ? ` (${userInput})` : ''}. אנא בחר מספר תקף מהתפריט:\n` + composeMessage(stageRow);
-      console.log('[Webhook][POST] Invalid choice at stage 0 -> show menu again');
+    if (selectedOption < 1 || selectedOption > validOptionCount) {
+      // קלט מספרי לא באינטרוול האפשרויות
       return res.status(200).json({
-        message: 'בחירה לא תקינה',
-        data: responseMessage,
+        message: 'לא הקלדת ספרה מתאימה',
+        data: composeMessage(stageRow)
       });
     }
 
-    // ===== לוגיקת מעבר במצבים שאינם 0 =====
-    if (isNumeric && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-      const nextStageColIndex = 2 * selectedOption + 1;
-      const nextStage = stageRow[nextStageColIndex];
-      console.log('[Webhook][POST] Next stage candidate:', nextStage);
+    // מעבר למצב הבא מהגיליון (חלוקה ל-indices)
+    const nextStageColIndex = 2 * selectedOption + 1;
+    const nextStageId = stageRow[nextStageColIndex];
 
-      // הגעה לסוף/FINAL → חזרה ל-0
-      if (nextStage && String(nextStage).toLowerCase() === 'final') {
-        userStates.set(from, '0');
-        userFlags.set(from, { justReset: true });
-        const initialStageRow = sheetDataCached.find(row => row[0] === '0');
-        const initialMessage = composeMessage(initialStageRow);
-        console.log('[Webhook][POST] Final stage reached -> reset to 0');
-        return res.status(200).json({
-          message: 'הגעת לסיום השיחה. חוזר לתפריט הראשי.',
-          data: initialMessage,
-        });
-      }
-
-      // אם אין יעד-מצב מוגדר או שהוא ריק → נחשב סיום ונאפס
-      if (!nextStage || !String(nextStage).trim()) {
-        userStates.set(from, '0');
-        userFlags.set(from, { justReset: true });
-        const initialStageRow = sheetDataCached.find(row => row[0] === '0');
-        const initialMessage = composeMessage(initialStageRow);
-        console.log('[Webhook][POST] No next stage (implicit final) -> reset to 0');
-        return res.status(200).json({
-          message: 'הגעת לסיום השיחה. חוזר לתפריט הראשי.',
-          data: initialMessage,
-        });
-      }
-
-      // מעבר תקין
-      userStates.set(from, String(nextStage));
-      currentStage = String(nextStage);
-      stageRow = sheetDataCached.find(row => row[0] === currentStage);
-      console.log('[Webhook][POST] Updated user state to:', currentStage);
-    } else {
-      // בחירה לא תקינה
-      const errorMsg = `בחרת אפשרות לא תקינה${userInput ? ` (${userInput})` : ''}. אנא בחר מספר תקף מהתפריט:\n`;
-      const responseMessage = errorMsg + composeMessage(stageRow);
-      console.log('[Webhook][POST] Sending error response with current menu');
+    // אין סטייט המשך -- שגיאה וחזור
+    if (!nextStageId || !getStageRow(nextStageId)) {
       return res.status(200).json({
-        message: 'בחירה לא תקינה',
-        data: responseMessage,
+        message: 'לא הקלדת ספרה מתאימה',
+        data: composeMessage(stageRow)
       });
     }
 
-    // שליחת התוכן של המצב הנוכחי לאחר עדכון (או ללא שינוי אם לא היה מעבר)
-    const responseMessage = composeMessage(stageRow);
-    console.log('[Webhook][POST] Sending response for stage:', currentStage);
-    console.log('[Webhook][POST] =============END REQUEST=============');
+    // בדוק אם המצב הבא הוא סופי
+    const nextStageRow = getStageRow(nextStageId);
 
+    if (isFinalState(nextStageRow)) {
+      userStates.delete(from);
+      return res.status(200).json({
+        message: 'סיום שיחה',
+        data: nextStageRow[1] || 'תודה!'
+      });
+    }
+
+    // מעבר אמיתי לשלב הבא והצגת הודעה + אופציות
+    userStates.set(from, nextStageId);
     return res.status(200).json({
-      message: 'נתונים נטענו בהצלחה',
-      data: responseMessage,
+      message: 'הודעת מצב חדשה',
+      data: composeMessage(nextStageRow)
     });
 
   } catch (error) {
     console.error('[Webhook][POST][ERROR]', error);
-    return res.status(500).json({
-      error: 'שגיאה פנימית בשרת',
-      details: error.message,
-    });
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
