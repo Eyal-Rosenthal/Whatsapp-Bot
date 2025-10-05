@@ -184,6 +184,7 @@ async function sendWhatsappMessage(to, message) {
     }
 }
 
+
 app.listen(PORT, () => {
     console.log(`[Server] Server is listening on port ${PORT}`);
 });
