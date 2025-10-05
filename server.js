@@ -96,9 +96,10 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// נכון: הבוט מגיב *רק* כאשר יש ממש הודעת טקסט ממשתמש!
 app.post('/webhook', async (req, res) => {
     try {
+        // ניתן להשאיר ל־debug:
+        // console.log('RAW POST BODY:', JSON.stringify(req.body, null, 2));
         const entryArray = req.body.entry;
         if (!entryArray || entryArray.length === 0) return res.sendStatus(200);
         const changes = entryArray[0].changes;
@@ -107,8 +108,8 @@ app.post('/webhook', async (req, res) => {
         if (!value || !value.messages || value.messages.length === 0) return res.sendStatus(200);
 
         const message = value.messages[0];
-        if (!message.text || !message.text.body) {
-            // אם זה לא הודעת טקסט – לא עונים בכלל, פשוט OK
+        // חלק קריטי: נענה רק על הודעת טקסט אמיתית מהמשתמש!
+        if (!message.text || !message.text.body || !message.text.body.trim()) {
             return res.sendStatus(200);
         }
 
@@ -136,7 +137,7 @@ app.post('/webhook', async (req, res) => {
             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
 
             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                const nextStageColIndex = 2 + (selectedOption - 1) * 2 + 1; // תיקון קריטי!
+                const nextStageColIndex = 2 + (selectedOption - 1) * 2 + 1;
                 const nextStage = (stageRow[nextStageColIndex] || '').toString().trim();
                 if (nextStage && (nextStage.toLowerCase() === 'final' || nextStage === '7')) {
                     userStates.delete(from);
