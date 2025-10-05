@@ -137,40 +137,61 @@ const userStates = new Map();
 
 // טיפול בהודעות הנכנסות מה-Webhook של WhatsApp
 app.post('/webhook', async (req, res) => {
-  console.log('[Webhook][POST] Incoming WhatsApp notification:', JSON.stringify(req.body, null, 2));
+  console.log('[Webhook][POST] ===== INCOMING WEBHOOK =====');
+  console.log('[Webhook][POST] Full request body:', JSON.stringify(req.body, null, 2));
+  console.log('[Webhook][POST] Request headers:', JSON.stringify(req.headers, null, 2));
   
   try {
-    // מבנה הודעת WhatsApp API
-    // Nachrichten יהיו ב: req.body.entry[x].changes[x].value.messages[x]
-    const entryArray = req.body.entry;
-    if (!entryArray || entryArray.length === 0) {
-      console.warn('[Webhook][POST] No entry array in request body');
-      return res.sendStatus(400);
+    // בדיקה גמישה יותר של מבנה הההודעה
+    let from = null;
+    let userInput = '';
+    
+    // אולי זה מבנה פשוט יותר?
+    if (req.body.from && req.body.text) {
+      from = req.body.from;
+      userInput = req.body.text.trim();
+      console.log('[Webhook][POST] Simple message structure detected');
+    }
+    // או מבנה WhatsApp API הרגיל
+    else if (req.body.entry && req.body.entry.length > 0) {
+      console.log('[Webhook][POST] WhatsApp API structure detected');
+      const entry = req.body.entry[0];
+      
+      if (entry.changes && entry.changes.length > 0) {
+        const change = entry.changes[0];
+        if (change.value && change.value.messages && change.value.messages.length > 0) {
+          const message = change.value.messages[0];
+          from = message.from;
+          if (message.text && message.text.body) {
+            userInput = message.text.body.trim();
+          }
+        }
+      }
+    }
+    // אולי מבנה אחר לגמרי?
+    else if (req.body.messages && req.body.messages.length > 0) {
+      console.log('[Webhook][POST] Alternative message structure detected');
+      const message = req.body.messages[0];
+      from = message.from;
+      if (message.text && message.text.body) {
+        userInput = message.text.body.trim();
+      }
     }
     
-    // עבור כל שינוי ב-entry - לרוב יש אחד
-    const changes = entryArray[0].changes;
-    if (!changes || changes.length === 0) {
-      console.warn('[Webhook][POST] No changes array in request body');
+    console.log(`[Webhook][POST] Extracted - From: ${from}, Message: "${userInput}"`);
+    
+    if (!from) {
+      console.warn('[Webhook][POST] Could not extract sender information');
       return res.sendStatus(400);
     }
-    
-    const value = changes[0].value;
-    if (!value || !value.messages || value.messages.length === 0) {
-      console.warn('[Webhook][POST] No messages array in request body value');
-      return res.sendStatus(400);
-    }
-    
-    const message = value.messages[0];
-    const from = message.from; // המספר ששולח את ההודעה
-    const userInput = (message.text && message.text.body) ? message.text.body.trim() : '';
-    console.log(`[Webhook][POST] Received message from: ${from}, content: "${userInput}"`);
     
     // קריאת נתוני הבוט מהגיליון
     const sheetData = await getBotFlow();
+    console.log('[Webhook][POST] Sheet data loaded successfully');
     
     // קבלת מצב המשתמש הנוכחי או התחלת מצב '0'
     let currentStage = userStates.get(from) || '0';
+    console.log(`[Webhook][POST] Current user stage: ${currentStage}`);
     
     // מציאת שורת השלב הנוכחי בגיליון
     let stageRow = sheetData.find(row => row[0] === currentStage);
@@ -178,6 +199,7 @@ app.post('/webhook', async (req, res) => {
     if (!stageRow) {
       currentStage = '0';
       stageRow = sheetData.find(row => row[0] === currentStage);
+      console.log('[Webhook][POST] Reset to stage 0');
     }
     
     // פונקציה הרכבת הודעה לפי שורה
@@ -191,19 +213,21 @@ app.post('/webhook', async (req, res) => {
     
     // ניתוח קלט המשתמש כאופציה במספר, רק אם לא בשלב '0'
     if (userInput && currentStage !== '0') {
+      console.log(`[Webhook][POST] Processing user input: "${userInput}" for stage: ${currentStage}`);
       const selectedOption = parseInt(userInput, 10);
       const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
       
       if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
         const nextStageColIndex = 2 * selectedOption + 1;
         const nextStage = stageRow[nextStageColIndex];
+        console.log(`[Webhook][POST] Valid option selected: ${selectedOption}, next stage: ${nextStage}`);
         
         if (nextStage?.toLowerCase() === 'final') {
           userStates.delete(from);
           
           // שליחת הודעת סיום
           const finalMessage = 'תודה שיצרת קשר!';
-          console.log(`[Webhook][POST] Sending final reply to ${from}: ${finalMessage}`);
+          console.log(`[Webhook][POST] SENDING FINAL MESSAGE to ${from}: ${finalMessage}`);
           
           await axios.post(
             `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
@@ -217,14 +241,16 @@ app.post('/webhook', async (req, res) => {
             }
           );
           
+          console.log('[Webhook][POST] Final message sent successfully');
           return res.sendStatus(200);
         } else if (nextStage) {
           currentStage = nextStage;
           userStates.set(from, currentStage);
           stageRow = sheetData.find(row => row[0] === currentStage);
+          console.log(`[Webhook][POST] Updated user stage to: ${currentStage}`);
         } else {
           const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-          console.log(`[Webhook][POST] Invalid option selected by ${from}, resending options`);
+          console.log(`[Webhook][POST] SENDING ERROR MESSAGE to ${from}: ${errorMsg}`);
           await axios.post(
             `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
             {
@@ -241,7 +267,7 @@ app.post('/webhook', async (req, res) => {
       } else {
         // קלט לא חוקי - הודעת שגיאה עם אפשרויות
         const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-        console.log(`[Webhook][POST] Invalid input from ${from}, sending error reply`);
+        console.log(`[Webhook][POST] SENDING INVALID INPUT ERROR to ${from}: ${errorMsg}`);
         await axios.post(
           `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
           {
@@ -257,15 +283,17 @@ app.post('/webhook', async (req, res) => {
       }
     } else if (currentStage === '0') {
       userStates.set(from, currentStage);
+      console.log('[Webhook][POST] User at initial stage');
     }
     
     // יצירת הודעה לפי השלב הנוכחי
     const responseMessage = composeMessage(stageRow);
     
-    console.log(`[Webhook][POST] Sending reply to ${from}:`, responseMessage);
+    console.log(`[Webhook][POST] SENDING RESPONSE MESSAGE to ${from}:`);
+    console.log(`[Webhook][POST] Message content: ${responseMessage}`);
     
     // שליחת הודעה חזרה דרך API של WhatsApp
-    await axios.post(
+    const whatsappResponse = await axios.post(
       `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
       {
         messaging_product: 'whatsapp',
@@ -277,9 +305,16 @@ app.post('/webhook', async (req, res) => {
       }
     );
     
+    console.log('[Webhook][POST] WhatsApp API response:', whatsappResponse.status, whatsappResponse.statusText);
+    console.log('[Webhook][POST] Message sent successfully');
+    
     return res.sendStatus(200);
   } catch (error) {
-    console.error('[Webhook][POST][ERROR]', error);
+    console.error('[Webhook][POST][ERROR] Error details:', error.message);
+    console.error('[Webhook][POST][ERROR] Full error:', error);
+    if (error.response) {
+      console.error('[Webhook][POST][ERROR] API Response:', error.response.data);
+    }
     return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
