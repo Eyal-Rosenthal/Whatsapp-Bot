@@ -69,16 +69,13 @@ async function getAuth() {
 })();
 
 async function getBotFlow() {
-    console.log('[BotFlow] Entering getBotFlow()');
     try {
         const auth = await getAuth();
         const sheets = google.sheets({ version: 'v4', auth });
-        console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
         const res = await sheets.spreadsheets.values.get({
             spreadsheetId: GOOGLE_SHEET_ID,
             range: 'Sheet1',
         });
-        console.log('[BotFlow] Data fetched from Google Sheet:', res.data.values ? res.data.values.length + ' rows' : 'no data');
         return res.data.values;
     } catch (error) {
         console.error('[BotFlow][ERROR]', error);
@@ -99,31 +96,26 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// טיפול נכון בכל סוגי ה-notifications!
+// נכון: הבוט מגיב *רק* כאשר יש ממש הודעת טקסט ממשתמש!
 app.post('/webhook', async (req, res) => {
     try {
         const entryArray = req.body.entry;
-        if (!entryArray || entryArray.length === 0) {
-            // אין entry בכלל? זה לא קלט, מחזיר הצלחה
-            return res.sendStatus(200);
-        }
+        if (!entryArray || entryArray.length === 0) return res.sendStatus(200);
         const changes = entryArray[0].changes;
-        if (!changes || changes.length === 0) {
-            // אין changes בקלט? זה לא הודעה רלוונטית
-            return res.sendStatus(200);
-        }
+        if (!changes || changes.length === 0) return res.sendStatus(200);
         const value = changes[0].value;
-        if (!value || !value.messages || value.messages.length === 0) {
-            // זהו אינו event הודעה רגילה – ignore ומחזיר הצלחה
+        if (!value || !value.messages || value.messages.length === 0) return res.sendStatus(200);
+
+        const message = value.messages[0];
+        if (!message.text || !message.text.body) {
+            // אם זה לא הודעת טקסט – לא עונים בכלל, פשוט OK
             return res.sendStatus(200);
         }
-        const message = value.messages[0];
+
         const from = message.from;
-        const userInput = (message.text && message.text.body) ? message.text.body.trim() : '';
-        console.log(`[Webhook][POST] Got WhatsApp message from ${from}: "${userInput}"`);
+        const userInput = message.text.body.trim();
 
         const sheetData = await getBotFlow();
-
         let currentStage = userStates.get(from) || '0';
         let stageRow = sheetData.find(row => row[0] === currentStage);
         if (!stageRow) {
@@ -134,22 +126,21 @@ app.post('/webhook', async (req, res) => {
         function composeMessage(row) {
             let msg = row[1] + '\n';
             for (let i = 2, optionCount = 1; i < row.length; i += 2, optionCount++) {
-                if (row[i]) msg += `${optionCount}. ${row[i]}\n`;
+                if (row[i] && row[i].trim()) msg += `${optionCount}. ${row[i]}\n`;
             }
             return msg.trim();
         }
 
-        // ניתוח קלט המשתמש כאופציה במספר, רק אם לא בשלב '0'
         if (userInput && currentStage !== '0') {
             const selectedOption = parseInt(userInput, 10);
             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
 
             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                const nextStageColIndex = 2 * selectedOption + 1;
-                const nextStage = stageRow[nextStageColIndex];
-                if (nextStage?.toLowerCase() === 'final') {
+                const nextStageColIndex = 2 + (selectedOption - 1) * 2 + 1; // תיקון קריטי!
+                const nextStage = (stageRow[nextStageColIndex] || '').toString().trim();
+                if (nextStage && (nextStage.toLowerCase() === 'final' || nextStage === '7')) {
                     userStates.delete(from);
-                    const finalMessage = 'תודה שיצרת קשר!';
+                    const finalMessage = 'תודה ולהתראות!';
                     await axios.post(
                         `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                         {
@@ -205,6 +196,7 @@ app.post('/webhook', async (req, res) => {
             { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
         );
         return res.sendStatus(200);
+
     } catch (error) {
         console.error('[Webhook][POST][ERROR]', error);
         return res.status(500).json({ error: 'Internal server error', details: error.message });
