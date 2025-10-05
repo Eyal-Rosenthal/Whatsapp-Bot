@@ -8,10 +8,10 @@ const bodyParser = require('body-parser');
 const app = express();
 app.use(bodyParser.json());
 
-// הגדרה גלובלית של map לשימור מצב המשתמשים
+// משתנה גלובלי לשימור מצב המשתמשים
 const userStates = new Map();
 
-// משתני סביבה...
+// משתני סביבה ...
 const {
     VERIFY_TOKEN,
     WHATSAPP_TOKEN,
@@ -46,6 +46,7 @@ const credentials = {
 const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
 
+// גישה ל-Google Sheets
 async function getAuth() {
     const auth = new google.auth.GoogleAuth({
         keyFile: keyFilePath,
@@ -84,13 +85,37 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// ניהול מצבים מרובים למשתמשים
+// קבלת הודעה מ-WhatsApp ושליחת תשובה אוטומטית - תיקון שליפת מזהה משתמש וטקסט הודעה
 app.post('/webhook', async (req, res) => {
     try {
-        const from = req.body.from;
+        // לוג debug לבדוק מבנה ההודעה
+        console.log('[DEBUG] Raw webhook:', JSON.stringify(req.body, null, 2));
+
+        // שליפת מזהה WhatsApp מתוך contacts
+        let from;
         let userInput = '';
-        if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
-        else if (req.body.message) userInput = req.body.message.trim();
+
+        if (req.body.contacts && req.body.contacts.length > 0) {
+            from = req.body.contacts[0].wa_id;
+        }
+        // גיבוי ל"חיפוש רגיל" (למקרה שיש פורמט שונה)
+        if (!from && req.body.from) {
+            from = req.body.from;
+        }
+
+        // שליפת ההודעה (בהנחה שב-standard היא תחת messages[0].text.body)
+        if (req.body.messages && req.body.messages.length > 0 && req.body.messages[0].text && req.body.messages[0].text.body) {
+            userInput = req.body.messages[0].text.body.trim();
+        } else if (req.body.text && req.body.text.body) {
+            userInput = req.body.text.body.trim();
+        } else if (req.body.message) {
+            userInput = req.body.message.trim();
+        }
+
+        if (!from) {
+            console.error('[ERROR] Could not extract "from" field from webhook');
+            return res.sendStatus(400);
+        }
 
         let currentStage = userStates.get(from) || '0';
         const sheetData = await getBotFlow();
@@ -127,7 +152,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         if (currentStage === '0') {
-            // שומר תחילת מצב
+            // שומר את מצב התחלה
             userStates.set(from, currentStage);
             const responseMessage = composeMessage(stageRow);
             await sendWhatsappMessage(from, responseMessage);
@@ -139,6 +164,7 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+// שליחת הודעה ל-WhatsApp API (פונקציה)
 async function sendWhatsappMessage(to, message) {
     try {
         await axios.post(
@@ -154,7 +180,7 @@ async function sendWhatsappMessage(to, message) {
         );
         console.log(`[WhatsApp][SEND] Sent to ${to}: ${message}`);
     } catch (err) {
-        console.error('[WhatsApp][SEND][ERROR]', err);
+        console.error('[WhatsApp][SEND][ERROR]', err.response ? err.response.data : err.message);
     }
 }
 
