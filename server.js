@@ -80,6 +80,7 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
   console.log('==== [POST /webhook] =====');
+   res.sendStatus(200);
   try {
     console.log('[Webhook][POST] BODY:', JSON.stringify(req.body));
     let from = null, userInput = '';
