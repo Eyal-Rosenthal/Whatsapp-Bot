@@ -168,8 +168,8 @@ app.post('/webhook', async (req, res) => {
     
     // קריאת נתוני הבוט מהגיליון
     const sheetData = await getBotFlow();
-
-    // copied from last workking version
+/*
+    ///////////////////////////////////////////////////////// copied from last workking version
         // Find current stage row
     let stageRow = sheetData.find(row => row[0] === currentStage);
 
@@ -232,7 +232,10 @@ app.post('/webhook', async (req, res) => {
     }
 
     const finalMessage = composeMessage(stageRow);
-    /* 
+    */
+    
+    
+     
     // קבלת מצב המשתמש הנוכחי או התחלת מצב '0'
     let currentStage = userStates.get(from) || '0';
     
@@ -268,7 +271,7 @@ app.post('/webhook', async (req, res) => {
           // שליחת הודעת סיום
           const finalMessage = 'תודה שיצרת קשר!';
           console.log(`[Webhook][POST] Sending final reply to ${from}: ${finalMessage}`);
-     */      
+        
 
 
           await axios.post(
