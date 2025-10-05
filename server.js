@@ -21,11 +21,11 @@ const {
   auth_provider_x509_cert_url,
   client_x509_cert_url,
   VERIFY_TOKEN,
-  WHATSAPP_TOKEN, // המפתח הרשאה של WhatsApp Cloud
+  WHATSAPP_TOKEN, // Meta API token
   PORT = 8080,
   GOOGLE_SHEET_ID,
   GCLOUD_PROJECT,
-  WHATSAPP_PHONE, // phone number ID (לא המספר) מה-API
+  WHATSAPP_PHONE, // Phone Number ID, not the actual number
 } = process.env;
 
 const credentials = {
@@ -59,7 +59,7 @@ async function getAuth() {
   }
 }
 
-// טעינת הגיליון פעם אחת
+// טעינת cache של הגליון פעם אחת בלבד עם העלאת השרת
 let sheetCache = null;
 async function loadSheetCacheOnce() {
   try {
@@ -119,7 +119,7 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// השיטה שתשלח תגובה ל-WhatsApp (Meta API, V18)
+// שליחת הודעה ללקוח דרך WhatsApp Cloud API
 async function sendWhatsappReply(to, text) {
   try {
     const url = `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`;
@@ -139,45 +139,42 @@ async function sendWhatsappReply(to, text) {
   }
 }
 
-// Handle incoming messages (parse format for WhatsApp API)
+// עיבוד הודעות נכנסות בפורמט של WhatsApp API
 app.post('/webhook', async (req, res) => {
+  // לוג מפורט של גוף הבקשה
+  console.log('[Webhook][POST] Incoming message:', JSON.stringify(req.body, null, 2));
   try {
     if (!sheetCache || !sheetCache.length) await loadSheetCacheOnce();
 
     let from = null, userInput = '';
-    // --- WhatsApp API V18 webhook incoming event parsing
-    // בדוק אם body שונה באתר WhatsApp:
     if (req.body.entry && Array.isArray(req.body.entry)) {
-      // סוג מעטפה אמתית
-      const changes = req.body.entry[0]?.changes || [];
-      if (changes.length && changes[0].value.messages) {
-        const msgObj = changes[0].value.messages[0];
-        from = msgObj.from; // המספר של הפונה
-        userInput = (msgObj.text && msgObj.text.body) ? msgObj.text.body.trim() : '';
-      }
+      // Webhook של WhatsApp
+      try {
+        const msgObj = req.body.entry[0]?.changes[0]?.value?.messages?.[0];
+        from = msgObj?.from;
+        userInput = msgObj?.text?.body?.trim() || '';
+      } catch (e) { from = null; userInput = ''; }
     }
-    // במידה והמבנה הוא POSTMAN לסימולציה:
+    // סימולציה או POSTMAN
     if (!from) from = req.body.from || 'unknown';
     if (!userInput) {
       if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
       else if (req.body.message) userInput = req.body.message.trim();
     }
-    // ניהול סטייט: אם לא קיים stage למשתמש או אחרי reset - אפס ל-0
+
     let currentStage = userStates.get(from);
     if (!currentStage) {
       currentStage = '0';
       userStates.set(from, '0');
       const stageRow = getStageRow('0');
-      const msg = composeMessage(stageRow);
-      await sendWhatsappReply(from, msg);
+      await sendWhatsappReply(from, composeMessage(stageRow));
       return res.sendStatus(200);
     }
     let stageRow = getStageRow(currentStage);
     if (!stageRow) {
       userStates.set(from, '0');
       stageRow = getStageRow('0');
-      const msg = composeMessage(stageRow);
-      await sendWhatsappReply(from, msg);
+      await sendWhatsappReply(from, composeMessage(stageRow));
       return res.sendStatus(200);
     }
     if (isFinalState(stageRow)) {
@@ -185,7 +182,7 @@ app.post('/webhook', async (req, res) => {
       await sendWhatsappReply(from, stageRow[1] || 'תודה!');
       return res.sendStatus(200);
     }
-    // בדוק קלט מספרי תקין (רק ספרה שיש לה אפשרות ברשימה)
+    // בדיקת קלט - רק ספרה חוקית
     let validOptionCount = 0;
     for (let i = 2; i < stageRow.length; i += 2) {
       if (stageRow[i] && stageRow[i].trim()) validOptionCount++;
@@ -216,6 +213,7 @@ app.post('/webhook', async (req, res) => {
     userStates.set(from, nextStageId);
     await sendWhatsappReply(from, composeMessage(nextStageRow));
     return res.sendStatus(200);
+
   } catch (error) {
     console.error('[Webhook][POST][ERROR]', error);
     return res.sendStatus(500);
