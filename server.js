@@ -94,6 +94,27 @@ async function getBotFlow() {
 // State per user
 const userStates = new Map();
 
+// -- Utility --
+function getOptions(row) {
+    // לכל אפשרויות בתפריט: [טקסט, מזהה שלב הבא]
+    let options = [];
+    for (let i = 2; i < row.length; i += 2) {
+        if (row[i] && row[i + 1]) {
+            options.push({ text: row[i], next: row[i + 1] });
+        }
+    }
+    return options;
+}
+
+function composeMessage(row) {
+    let msg = row[1] + '\n';
+    const options = getOptions(row);
+    options.forEach((opt, idx) => {
+        msg += `${idx + 1}. ${opt.text}\n`;
+    });
+    return msg.trim();
+}
+
 // Webhook verification
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
@@ -116,7 +137,7 @@ app.post('/webhook', async (req, res) => {
         const value = changes[0].value;
         if (!value || !value.messages || value.messages.length === 0) return res.sendStatus(200);
         const message = value.messages[0];
-        if (!message.text || !message.text.body || !message.text.body.trim()) return res.sendStatus(200); // **ANTI-loop!**
+        if (!message.text || !message.text.body || !message.text.body.trim()) return res.sendStatus(200);
 
         const from = message.from;
         const userInput = message.text.body.trim();
@@ -130,31 +151,21 @@ app.post('/webhook', async (req, res) => {
             stageRow = sheetData.find(row => row[0] === currentStage);
         }
 
-        // helper - compose message
-        function composeMessage(row) {
-            let msg = row[1] + '\n';
-            for (let i = 2, optionCount = 1; i < row.length; i += 2, optionCount++) {
-                if (row[i] && row[i].trim()) msg += `${optionCount}. ${row[i]}\n`;
-            }
-            return msg.trim();
-        }
-
-        // LOG - אינפורמציה בסיסית
+        // LOG - קלט וקונטקסט
         console.log(`[LOG][USER] from=${from} input='${userInput}' currentStage=${currentStage}`);
+        console.log(`[DEBUG] stageRow: ${JSON.stringify(stageRow)}`);
 
-        // Handle selection cases
+        // מעבר שלבים
         if (userInput && currentStage !== '0') {
+            const options = getOptions(stageRow);
             const selectedOption = parseInt(userInput, 10);
-            const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-            console.log(`[DEBUG] input=${userInput}, selectedOption=${selectedOption}, validOptionsCount=${validOptionsCount}`);
+            console.log(`[DEBUG] userInput: ${userInput}, selectedOption: ${selectedOption}, optionsCount: ${options.length}`);
+            if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= options.length) {
+                const nextStage = (options[selectedOption - 1].next || '').trim();
+                console.log(`[DEBUG] nextStage שמתקבל מהאפשרות שנבחרה: ${nextStage}`);
 
-            if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                const nextStageColIndex = 2 + (selectedOption - 1) * 2 + 1;
-                const nextStage = (stageRow[nextStageColIndex] || '').toString().trim();
-                console.log(`[DEBUG] nextStageColIndex=${nextStageColIndex} nextStage=${nextStage}`);
-
+                // סוף שיחה
                 if (nextStage && (nextStage.toLowerCase() === 'final' || nextStage === '7')) {
-                    // END conversation
                     userStates.delete(from);
                     const finalMessage = 'תודה ולהתראות!';
                     console.log(`[INFO] שיחה הסתיימה עם משתמש ${from}`);
@@ -173,34 +184,19 @@ app.post('/webhook', async (req, res) => {
                     currentStage = nextStage;
                     userStates.set(from, currentStage);
                     stageRow = sheetData.find(row => row[0] === currentStage);
-                    if (!stageRow) {
-                        // fallback מודפס ללוג
-                        console.log(`[ERROR] לא נמצא שלב ${currentStage} בגיליון`);
-                        await axios.post(
-                            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
-                            {
-                                messaging_product: 'whatsapp',
-                                to: from,
-                                text: { body: 'שגיאת מערכת: שלב לא נמצא.' }
-                            },
-                            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-                        );
-                        return res.sendStatus(200);
-                    }
-                    const responseMessage = composeMessage(stageRow);
-                    console.log(`[SEND] מעביר משתמש ${from} לשלב ${currentStage}, הודעה: ${responseMessage}`);
+                    console.log(`[SEND] מעביר משתמש ${from} לשלב ${currentStage} (${composeMessage(stageRow)})`);
                     await axios.post(
                         `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                         {
                             messaging_product: 'whatsapp',
                             to: from,
-                            text: { body: responseMessage }
+                            text: { body: composeMessage(stageRow) }
                         },
                         { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
                     );
                     return res.sendStatus(200);
                 } else {
-                    // Invalid selection (but legal option input)
+                    // אפשרות חוקית אך לזהות שלב הבא ריק
                     const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                     console.log(`[WARN] אפשרות חוקית אך שלב הבא ריק: from=${from}, input=${userInput}, row=${JSON.stringify(stageRow)}`);
                     await axios.post(
@@ -215,7 +211,7 @@ app.post('/webhook', async (req, res) => {
                     return res.sendStatus(200);
                 }
             } else {
-                // Invalid input (non-number or out of range)
+                // קלט לא חוקי
                 const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                 console.log(`[WARN] קלט לא חוקי: from=${from}, input=${userInput}, row=${JSON.stringify(stageRow)}`);
                 await axios.post(
@@ -246,9 +242,6 @@ app.post('/webhook', async (req, res) => {
             );
             return res.sendStatus(200);
         }
-
-        // in-stage (not 0) after correct transition, send next stage message
-        // [אמור להיתפס בתנאי בשלבים לעיל]
 
     } catch (error) {
         console.error('[Webhook][POST][ERROR]', error);
