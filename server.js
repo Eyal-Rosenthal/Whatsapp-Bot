@@ -1,4 +1,4 @@
-console.log('===== Server starting =====');
+console.log('=== SERVER.JS LOADING: VERSION OCT 5 ===');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -78,9 +78,11 @@ app.get('/webhook', (req, res) => {
   res.sendStatus(403);
 });
 
-app.post('/webhook', async (req, res) => {
-  console.log('==== [POST /webhook] =====');
-   res.sendStatus(200);
+app.post('/webhook', (req, res) => {
+  console.log('=== POST /webhook: ENTERED HANDLER ===');
+  res.sendStatus(200);
+});
+
   try {
     console.log('[Webhook][POST] BODY:', JSON.stringify(req.body));
     let from = null, userInput = '';
