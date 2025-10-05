@@ -19,7 +19,7 @@ const {
     WHATSAPP_PHONE,
 } = process.env;
 
-// פונקציה לטעינת גיליון מקומי
+// --- Load Sheet Locally (xlsx for flexibility) ---
 function loadSheetData() {
     const filePath = path.join(__dirname, 'Whatsapp-bot.xlsx');
     const workbook = xlsx.readFile(filePath);
@@ -28,22 +28,23 @@ function loadSheetData() {
     return rawRows;
 }
 
-// מצב אישי לכל משתמש
+// --- User State ---
 const userStates = new Map();
 
-// עוזר: כלי גמיש לפירוק אפשרויות מכל שורה בגיליון
+// --- Option Extraction: Flexible!! ---
 function getOptions(row) {
     let options = [];
-    for (let i = 2; i < row.length - 1; i += 2) {
-        if ((row[i] !== undefined && row[i] !== '') && (row[i+1] !== undefined && row[i+1] !== '')) {
-            options.push({ text: row[i], next: row[i+1].toString().trim() });
+    for (let i = 2; i < row.length; i += 2) {
+        // מזהה שלב הבא תקין (לא ריק/undefined)
+        if (row[i + 1] !== undefined && row[i + 1] !== null && row[i + 1].toString().trim() !== '') {
+            options.push({ text: row[i] ? row[i].toString().trim() : '', next: row[i + 1].toString().trim() });
         }
     }
     return options;
 }
 
 function composeMessage(row) {
-    let msg = row[1] ? row[1] + '\n' : '';
+    let msg = row[1] ? row[1].toString().trim() + '\n' : '';
     const options = getOptions(row);
     options.forEach((opt, idx) => {
         msg += `${idx + 1}. ${opt.text}\n`;
@@ -51,7 +52,7 @@ function composeMessage(row) {
     return msg.trim();
 }
 
-// אימות webhook
+// --- Webhook Verification ---
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -62,7 +63,7 @@ app.get('/webhook', (req, res) => {
     return res.sendStatus(403);
 });
 
-// לוגיקת הודעות
+// --- WhatsApp Webhook Handler ---
 app.post('/webhook', async (req, res) => {
     try {
         const entryArray = req.body.entry;
@@ -83,12 +84,12 @@ app.post('/webhook', async (req, res) => {
         const sheetData = loadSheetData();
 
         let currentStage = userStates.get(from) || '0';
-        let stageRow = sheetData.find(row => row[0].toString() === currentStage);
+        let stageRow = sheetData.find(row => row[0].toString().trim() === currentStage);
 
         if (!stageRow) {
             console.log(`[DEBUG] שלב לא נמצא בגיליון - איפוס ל-0. from=${from} currentStage=${currentStage}`);
             currentStage = '0';
-            stageRow = sheetData.find(row => row[0].toString() === currentStage);
+            stageRow = sheetData.find(row => row[0].toString().trim() === currentStage);
         }
 
         console.log(`[LOG][USER] from=${from} input='${userInput}' currentStage=${currentStage}`);
@@ -98,7 +99,7 @@ app.post('/webhook', async (req, res) => {
         if (userInput && currentStage !== '0') {
             const options = getOptions(stageRow);
             const selectedOption = parseInt(userInput, 10);
-            console.log(`[DEBUG] קלט מהמשתמש: '${userInput}', selectedOption=${selectedOption}, optionsCount=${options.length}`);
+            console.log(`[DEBUG] קלט מהמשתמש: '${userInput}', selectedOption=${selectedOption}, optionsCount=${options.length}, options=${JSON.stringify(options)}`);
             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= options.length) {
                 const nextStage = options[selectedOption - 1].next;
                 console.log(`[DEBUG] nextStage שמתקבל: '${nextStage}'`);
@@ -119,7 +120,7 @@ app.post('/webhook', async (req, res) => {
                 } else if (nextStage) {
                     currentStage = nextStage;
                     userStates.set(from, currentStage);
-                    stageRow = sheetData.find(row => row[0].toString() === currentStage);
+                    stageRow = sheetData.find(row => row[0].toString().trim() === currentStage);
                     if (!stageRow) {
                         console.log(`[ERROR] שלב הבא ${currentStage} לא נמצא בגיליון`);
                         await axios.post(
