@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const axios = require('axios');
-const { google } = require('googleapis');
 const bodyParser = require('body-parser');
+const xlsx = require('xlsx');
 
 console.log('Required modules loaded successfully');
 
@@ -13,101 +13,37 @@ const app = express();
 app.use(bodyParser.json());
 
 const {
-    type,
-    project_id,
-    private_key_id,
-    private_key,
-    client_email,
-    client_id,
-    auth_uri,
-    token_uri,
-    auth_provider_x509_cert_url,
-    client_x509_cert_url,
     VERIFY_TOKEN,
     WHATSAPP_TOKEN,
     PORT = 8080,
-    GOOGLE_SHEET_ID,
-    GCLOUD_PROJECT,
     WHATSAPP_PHONE,
 } = process.env;
 
-// Generate credentials.json
-const credentials = {
-    type,
-    project_id,
-    private_key_id,
-    private_key: private_key ? private_key.replace(/\\n/g, '\n') : undefined,
-    client_email,
-    client_id,
-    auth_uri,
-    token_uri,
-    auth_provider_x509_cert_url,
-    client_x509_cert_url,
-};
-
-const keyFilePath = path.join(__dirname, 'credentials.json');
-fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
-console.log('[ENV] credentials.json file created at', keyFilePath);
-
-// Google Auth
-async function getAuth() {
-    try {
-        const auth = new google.auth.GoogleAuth({
-            keyFile: keyFilePath,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-        });
-        const jwtClient = await auth.getClient();
-        console.log('JWT Client authorized successfully.');
-        return jwtClient;
-    } catch (err) {
-        console.error('[getAuth][ERROR]', err.message || err);
-        throw err;
-    }
+// פונקציה לטעינת גיליון מקומי
+function loadSheetData() {
+    const filePath = path.join(__dirname, 'Whatsapp-bot.xlsx');
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const rawRows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], {header:1});
+    return rawRows;
 }
 
-// On boot, sanity auth test
-(async () => {
-    try {
-        await getAuth();
-        console.log('[AuthCheck] Google Auth Token is valid');
-    } catch (error) {
-        console.error('[AuthCheck][ERROR]', error.message);
-    }
-})();
-
-// Get bot flow from Google Sheets
-async function getBotFlow() {
-    try {
-        const auth = await getAuth();
-        const sheets = google.sheets({ version: 'v4', auth });
-        const res = await sheets.spreadsheets.values.get({
-            spreadsheetId: GOOGLE_SHEET_ID,
-            range: 'Sheet1',
-        });
-        return res.data.values;
-    } catch (error) {
-        console.error('[BotFlow][ERROR]', error);
-        throw error;
-    }
-}
-
-// State per user
+// מצב אישי לכל משתמש
 const userStates = new Map();
 
-// -- Utility --
+// עוזר: כלי גמיש לפירוק אפשרויות מכל שורה בגיליון
 function getOptions(row) {
-    // לכל אפשרויות בתפריט: [טקסט, מזהה שלב הבא]
     let options = [];
-    for (let i = 2; i < row.length; i += 2) {
-        if (row[i] && row[i + 1]) {
-            options.push({ text: row[i], next: row[i + 1] });
+    for (let i = 2; i < row.length - 1; i += 2) {
+        if ((row[i] !== undefined && row[i] !== '') && (row[i+1] !== undefined && row[i+1] !== '')) {
+            options.push({ text: row[i], next: row[i+1].toString().trim() });
         }
     }
     return options;
 }
 
 function composeMessage(row) {
-    let msg = row[1] + '\n';
+    let msg = row[1] ? row[1] + '\n' : '';
     const options = getOptions(row);
     options.forEach((opt, idx) => {
         msg += `${idx + 1}. ${opt.text}\n`;
@@ -115,19 +51,18 @@ function composeMessage(row) {
     return msg.trim();
 }
 
-// Webhook verification
+// אימות webhook
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
         return res.status(200).send(challenge);
-    } else {
-        return res.sendStatus(403);
     }
+    return res.sendStatus(403);
 });
 
-// --- Main webhook logic ---
+// לוגיקת הודעות
 app.post('/webhook', async (req, res) => {
     try {
         const entryArray = req.body.entry;
@@ -137,34 +72,36 @@ app.post('/webhook', async (req, res) => {
         const value = changes[0].value;
         if (!value || !value.messages || value.messages.length === 0) return res.sendStatus(200);
         const message = value.messages[0];
-        if (!message.text || !message.text.body || !message.text.body.trim()) return res.sendStatus(200);
+
+        if (!message.text || !message.text.body || !message.text.body.trim()) {
+            console.log('[DEBUG] התקבלה פנייה ללא טקסט אמיתי, מתעלם');
+            return res.sendStatus(200);
+        }
 
         const from = message.from;
         const userInput = message.text.body.trim();
-        const sheetData = await getBotFlow();
+        const sheetData = loadSheetData();
 
         let currentStage = userStates.get(from) || '0';
-        let stageRow = sheetData.find(row => row[0] === currentStage);
+        let stageRow = sheetData.find(row => row[0].toString() === currentStage);
+
         if (!stageRow) {
-            console.log(`[DEBUG] שלב לא נמצא בגיליון - reset ל-0. from=${from} currentStage=${currentStage}`);
+            console.log(`[DEBUG] שלב לא נמצא בגיליון - איפוס ל-0. from=${from} currentStage=${currentStage}`);
             currentStage = '0';
-            stageRow = sheetData.find(row => row[0] === currentStage);
+            stageRow = sheetData.find(row => row[0].toString() === currentStage);
         }
 
-        // LOG - קלט וקונטקסט
         console.log(`[LOG][USER] from=${from} input='${userInput}' currentStage=${currentStage}`);
         console.log(`[DEBUG] stageRow: ${JSON.stringify(stageRow)}`);
 
-        // מעבר שלבים
+        // מעבר שלבים בפועל רק אם יש קלט מתאים
         if (userInput && currentStage !== '0') {
             const options = getOptions(stageRow);
             const selectedOption = parseInt(userInput, 10);
-            console.log(`[DEBUG] userInput: ${userInput}, selectedOption: ${selectedOption}, optionsCount: ${options.length}`);
+            console.log(`[DEBUG] קלט מהמשתמש: '${userInput}', selectedOption=${selectedOption}, optionsCount=${options.length}`);
             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= options.length) {
-                const nextStage = (options[selectedOption - 1].next || '').trim();
-                console.log(`[DEBUG] nextStage שמתקבל מהאפשרות שנבחרה: ${nextStage}`);
-
-                // סוף שיחה
+                const nextStage = options[selectedOption - 1].next;
+                console.log(`[DEBUG] nextStage שמתקבל: '${nextStage}'`);
                 if (nextStage && (nextStage.toLowerCase() === 'final' || nextStage === '7')) {
                     userStates.delete(from);
                     const finalMessage = 'תודה ולהתראות!';
@@ -180,25 +117,37 @@ app.post('/webhook', async (req, res) => {
                     );
                     return res.sendStatus(200);
                 } else if (nextStage) {
-                    // עדכון שלב!
                     currentStage = nextStage;
                     userStates.set(from, currentStage);
-                    stageRow = sheetData.find(row => row[0] === currentStage);
-                    console.log(`[SEND] מעביר משתמש ${from} לשלב ${currentStage} (${composeMessage(stageRow)})`);
+                    stageRow = sheetData.find(row => row[0].toString() === currentStage);
+                    if (!stageRow) {
+                        console.log(`[ERROR] שלב הבא ${currentStage} לא נמצא בגיליון`);
+                        await axios.post(
+                            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+                            {
+                                messaging_product: 'whatsapp',
+                                to: from,
+                                text: { body: 'שגיאת מערכת: שלב לא נמצא.' }
+                            },
+                            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+                        );
+                        return res.sendStatus(200);
+                    }
+                    const responseMessage = composeMessage(stageRow);
+                    console.log(`[SEND] מעביר משתמש ${from} לשלב ${currentStage}: ${responseMessage}`);
                     await axios.post(
                         `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                         {
                             messaging_product: 'whatsapp',
                             to: from,
-                            text: { body: composeMessage(stageRow) }
+                            text: { body: responseMessage }
                         },
                         { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
                     );
                     return res.sendStatus(200);
                 } else {
-                    // אפשרות חוקית אך לזהות שלב הבא ריק
-                    const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                    console.log(`[WARN] אפשרות חוקית אך שלב הבא ריק: from=${from}, input=${userInput}, row=${JSON.stringify(stageRow)}`);
+                    const errorMsg = 'בחרת אפשרות שאינה קיימת, נסה שוב:\n' + composeMessage(stageRow);
+                    console.log(`[WARN] אפשרות חוקית אך מזהה שלב הבא ריק: from=${from}, input=${userInput}, options=${JSON.stringify(options)}`);
                     await axios.post(
                         `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                         {
@@ -211,9 +160,8 @@ app.post('/webhook', async (req, res) => {
                     return res.sendStatus(200);
                 }
             } else {
-                // קלט לא חוקי
-                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                console.log(`[WARN] קלט לא חוקי: from=${from}, input=${userInput}, row=${JSON.stringify(stageRow)}`);
+                const errorMsg = 'בחרת אפשרות לא חוקית, נסה שוב:\n' + composeMessage(stageRow);
+                console.log(`[WARN] קלט לא חוקי: from=${from}, input=${userInput}, options=${JSON.stringify(options)}`);
                 await axios.post(
                     `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                     {
@@ -227,6 +175,7 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
+        // שליחה ראשונית
         if (currentStage === '0') {
             userStates.set(from, currentStage);
             const responseMessage = composeMessage(stageRow);
