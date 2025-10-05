@@ -9,6 +9,8 @@ console.log('Required modules loaded successfully');
 const app = express();
 app.use(bodyParser.json());
 
+
+// משתני סביבה לניהול קובץ credentials
 const {
   type,
   project_id,
@@ -25,14 +27,16 @@ const {
   PORT = 8080,
   GOOGLE_SHEET_ID,
   GCLOUD_PROJECT,
-  WHATSAPP_PHONE
+  WHATSAPP_PHONE,
 } = process.env;
 
+
+// יצירת קובץ credentials.json בזמן ריצה
 const credentials = {
   type,
   project_id,
   private_key_id,
-  private_key: private_key ? private_key.replace(/\n/g, '\n') : undefined,
+  private_key: private_key ? private_key.replace(/\\n/g, '\n') : undefined,
   client_email,
   client_id,
   auth_uri,
@@ -44,6 +48,8 @@ const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
 console.log('[ENV] credentials.json file created at', keyFilePath);
 
+
+// פונקציה לקבלת Google Auth מתוך הקובץ
 async function getAuth() {
   try {
     const auth = new google.auth.GoogleAuth({
@@ -59,52 +65,57 @@ async function getAuth() {
   }
 }
 
-// טעינת cache של הגיליון פעם אחת בלבד עם העלאת השרת
-let sheetCache = null;
-async function loadSheetCacheOnce() {
+
+// בדיקה ראשונית של המפתח בעת הרצת השרת
+(async () => {
+  try {
+    const auth = await getAuth();
+    console.log('[AuthCheck] Google Auth Token is valid');
+  } catch (error) {
+    console.error('[AuthCheck][ERROR]', error.message);
+  }
+})();
+
+
+// קריאת נתונים מ-Google Sheets
+async function getBotFlow() {
+  console.log('[BotFlow] Entering getBotFlow()');
   try {
     const auth = await getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
-    console.log('[BotFlow] Loading sheet data from Google Sheets...');
+    console.log('[BotFlow] Sheets client created, fetching spreadsheet data...');
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'Sheet1',
     });
-    sheetCache = res.data.values;
-    console.log('[BotFlow] Sheet data cached:', sheetCache.length, 'rows');
-  } catch (err) {
-    console.error('[BotFlow][ERROR] Failed to load Google Sheet:', err.message);
-    sheetCache = [];
+    console.log('[BotFlow] Data fetched from Google Sheet:', res.data.values ? res.data.values.length + ' rows' : 'no data');
+    return res.data.values;
+  } catch (error) {
+    console.error('[BotFlow][ERROR]', error);
+    throw error;
   }
 }
-loadSheetCacheOnce();
 
-function getStageRow(stageId) {
-  if (!sheetCache || !sheetCache.length) return null;
-  return sheetCache.find(row => row[0] === stageId);
-}
-function composeMessage(row) {
-  if (!row || !row[1]) return 'שגיאה - לא נמצא נוסח להודעה';
-  let msg = row[1] + "\n";
-  let optionNum = 1;
-  for (let i = 2; i < row.length; i += 2) {
-    if (row[i] && row[i].trim()) {
-      msg += `${optionNum}. ${row[i]}\n`;
-      optionNum++;
+
+function parseUserStep(userState, sheetData) {
+  console.log(`[Step] Parsing user step for userState: ${userState}`);
+  const stages = {};
+  if (!sheetData || sheetData.length === 0) {
+    console.warn('[Step] Empty or invalid sheetData');
+    return null;
+  }
+  for (let i = 1; i < sheetData.length; i++) {
+    const row = sheetData[i];
+    if (row && row[0]) {
+      stages[row[0]] = row;
     }
   }
-  return msg.trim();
+  const foundStage = stages[userState];
+  console.log(`[Step] Stage found: ${foundStage ? 'yes' : 'no'}`);
+  return foundStage || null;
 }
-function isFinalState(row) {
-  if (!row) return false;
-  for (let i = 2; i < row.length; i++) {
-    if (row[i] && row[i].trim()) return false;
-  }
-  return true;
-}
-const userStates = new Map();
 
-// Verify webhook for WhatsApp API
+
 app.get('/webhook', (req, res) => {
   console.log('[Webhook][GET] Incoming verification request:', req.query);
   const mode = req.query['hub.mode'];
@@ -119,139 +130,160 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-async function sendWhatsappReply(to, text) {
-  const url = `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`;
+
+// מפת מצבי משתמש
+const userStates = new Map();
+
+
+// טיפול בהודעות הנכנסות מה-Webhook של WhatsApp
+app.post('/webhook', async (req, res) => {
+  console.log('[Webhook][POST] Incoming WhatsApp notification:', JSON.stringify(req.body, null, 2));
+  
   try {
-    console.log(`[sendWhatsappReply] Attempting to send to ${to}:\n${text}`);
-    await axios.post(url,
+    // מבנה הודעת WhatsApp API
+    // Nachrichten יהיו ב: req.body.entry[x].changes[x].value.messages[x]
+    const entryArray = req.body.entry;
+    if (!entryArray || entryArray.length === 0) {
+      console.warn('[Webhook][POST] No entry array in request body');
+      return res.sendStatus(400);
+    }
+    
+    // עבור כל שינוי ב-entry - לרוב יש אחד
+    const changes = entryArray[0].changes;
+    if (!changes || changes.length === 0) {
+      console.warn('[Webhook][POST] No changes array in request body');
+      return res.sendStatus(400);
+    }
+    
+    const value = changes[0].value;
+    if (!value || !value.messages || value.messages.length === 0) {
+      console.warn('[Webhook][POST] No messages array in request body value');
+      return res.sendStatus(400);
+    }
+    
+    const message = value.messages[0];
+    const from = message.from; // המספר ששולח את ההודעה
+    const userInput = (message.text && message.text.body) ? message.text.body.trim() : '';
+    console.log(`[Webhook][POST] Received message from: ${from}, content: "${userInput}"`);
+    
+    // קריאת נתוני הבוט מהגיליון
+    const sheetData = await getBotFlow();
+    
+    // קבלת מצב המשתמש הנוכחי או התחלת מצב '0'
+    let currentStage = userStates.get(from) || '0';
+    
+    // מציאת שורת השלב הנוכחי בגיליון
+    let stageRow = sheetData.find(row => row[0] === currentStage);
+    
+    if (!stageRow) {
+      currentStage = '0';
+      stageRow = sheetData.find(row => row[0] === currentStage);
+    }
+    
+    // פונקציה הרכבת הודעה לפי שורה
+    function composeMessage(row) {
+      let msg = row[1] + '\n';
+      for (let i = 2, optionCount = 1; i < row.length; i += 2, optionCount++) {
+        if (row[i]) msg += `${optionCount}. ${row[i]}\n`;
+      }
+      return msg.trim();
+    }
+    
+    // ניתוח קלט המשתמש כאופציה במספר, רק אם לא בשלב '0'
+    if (userInput && currentStage !== '0') {
+      const selectedOption = parseInt(userInput, 10);
+      const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+      
+      if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+        const nextStageColIndex = 2 * selectedOption + 1;
+        const nextStage = stageRow[nextStageColIndex];
+        
+        if (nextStage?.toLowerCase() === 'final') {
+          userStates.delete(from);
+          
+          // שליחת הודעת סיום
+          const finalMessage = 'תודה שיצרת קשר!';
+          console.log(`[Webhook][POST] Sending final reply to ${from}: ${finalMessage}`);
+          
+          await axios.post(
+            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+            {
+              messaging_product: 'whatsapp',
+              to: from,
+              text: { body: finalMessage },
+            },
+            {
+              headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+            }
+          );
+          
+          return res.sendStatus(200);
+        } else if (nextStage) {
+          currentStage = nextStage;
+          userStates.set(from, currentStage);
+          stageRow = sheetData.find(row => row[0] === currentStage);
+        } else {
+          const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+          console.log(`[Webhook][POST] Invalid option selected by ${from}, resending options`);
+          await axios.post(
+            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+            {
+              messaging_product: 'whatsapp',
+              to: from,
+              text: { body: errorMsg },
+            },
+            {
+              headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+            }
+          );
+          return res.sendStatus(200);
+        }
+      } else {
+        // קלט לא חוקי - הודעת שגיאה עם אפשרויות
+        const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+        console.log(`[Webhook][POST] Invalid input from ${from}, sending error reply`);
+        await axios.post(
+          `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+          {
+            messaging_product: 'whatsapp',
+            to: from,
+            text: { body: errorMsg },
+          },
+          {
+            headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+          }
+        );
+        return res.sendStatus(200);
+      }
+    } else if (currentStage === '0') {
+      userStates.set(from, currentStage);
+    }
+    
+    // יצירת הודעה לפי השלב הנוכחי
+    const responseMessage = composeMessage(stageRow);
+    
+    console.log(`[Webhook][POST] Sending reply to ${from}:`, responseMessage);
+    
+    // שליחת הודעה חזרה דרך API של WhatsApp
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
       {
         messaging_product: 'whatsapp',
-        to: to,
-        text: { body: text }
+        to: from,
+        text: { body: responseMessage },
       },
       {
-        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
       }
     );
-    console.log(`[WhatsApp] Sent message to ${to}`);
-  } catch (err) {
-    console.error(`[WhatsApp] Error sending to ${to}:`, err.response?.data || err.message);
-  }
-}
-
-// עיבוד הודעות נכנסות בפורמט של WhatsApp API
-app.post('/webhook', async (req, res) => {
-  console.log('[Webhook][POST] ==== New message received ====');
-  console.log('[Webhook][POST] request.body:', JSON.stringify(req.body, null, 2));
-  try {
-    if (!sheetCache || !sheetCache.length) {
-      console.log('[Webhook][POST] Sheet cache empty - loading...');
-      await loadSheetCacheOnce();
-    }
-
-    // שלב 1: חילוץ הודעה ומספר
-    let from = null, userInput = '';
-    if (req.body.entry && Array.isArray(req.body.entry)) {
-      try {
-        const msgObj = req.body.entry[0]?.changes[0]?.value?.messages?.[0];
-        from = msgObj?.from;
-        userInput = msgObj?.text?.body?.trim() || '';
-        console.log(`[Webhook][POST] Parsed from WhatsApp: from=${from}, userInput="${userInput}"`);
-      } catch (e) {
-        from = null;
-        userInput = '';
-        console.log('[Webhook][POST] Failed parsing WhatsApp format message.');
-      }
-    }
-    // POSTMAN או טסט ידני
-    if (!from) {
-      from = req.body.from || 'unknown';
-      console.log(`[Webhook][POST] No WhatsApp from, using fallback: ${from}`);
-    }
-    if (!userInput) {
-      if (req.body.text && req.body.text.body) userInput = req.body.text.body.trim();
-      else if (req.body.message) userInput = req.body.message.trim();
-      console.log(`[Webhook][POST] Fallback userInput: "${userInput}"`);
-    }
-
-    // שלב 2: בחירת מצב נוכחי
-    let currentStage = userStates.get(from);
-    if (!currentStage) {
-      console.log(`[Webhook][POST] User ${from} has no state, resetting to 0`);
-      currentStage = '0';
-      userStates.set(from, '0');
-      const stageRow = getStageRow('0');
-      const answer = composeMessage(stageRow);
-      console.log(`[Webhook][POST] Sending startup message to ${from}:\n${answer}`);
-      await sendWhatsappReply(from, answer);
-      return res.sendStatus(200);
-    }
-    let stageRow = getStageRow(currentStage);
-    if (!stageRow) {
-      console.log(`[Webhook][POST] Current stage (${currentStage}) not found. Resetting to 0.`);
-      userStates.set(from, '0');
-      stageRow = getStageRow('0');
-      const answer = composeMessage(stageRow);
-      console.log(`[Webhook][POST] Sending reset message to ${from}:\n${answer}`);
-      await sendWhatsappReply(from, answer);
-      return res.sendStatus(200);
-    }
-
-    // שלב 3: בדיקה אם זה מצב סופי
-    if (isFinalState(stageRow)) {
-      console.log(`[Webhook][POST] Stage is terminal for ${from}. Clearing state and sending:\n${stageRow[1] || 'תודה!'}`);
-      userStates.delete(from);
-      await sendWhatsappReply(from, stageRow[1] || 'תודה!');
-      return res.sendStatus(200);
-    }
-
-    // שלב 4: בדיקת קלט חוקי
-    let validOptionCount = 0;
-    for (let i = 2; i < stageRow.length; i += 2) {
-      if (stageRow[i] && stageRow[i].trim()) validOptionCount++;
-    }
-    const digitRegex = /^[1-9][0-9]*$/;
-    if (!userInput || !digitRegex.test(userInput)) {
-      const errMsg = 'לא הקלדת ספרה מתאימה\n' + composeMessage(stageRow);
-      console.log(`[Webhook][POST] Invalid user input from ${from}: "${userInput}". Sending error:\n${errMsg}`);
-      await sendWhatsappReply(from, errMsg);
-      return res.sendStatus(200);
-    }
-    const selectedOption = parseInt(userInput, 10);
-    if (selectedOption < 1 || selectedOption > validOptionCount) {
-      const errMsg = 'לא הקלדת ספרה מתאימה\n' + composeMessage(stageRow);
-      console.log(`[Webhook][POST] Out-of-bounds input (${userInput}) from ${from}. Sending error:\n${errMsg}`);
-      await sendWhatsappReply(from, errMsg);
-      return res.sendStatus(200);
-    }
-
-    // שלב 5: שליפת מצב המשך ושליחה
-    const nextStageColIndex = 2 * selectedOption + 1;
-    const nextStageId = stageRow[nextStageColIndex];
-    if (!nextStageId || !getStageRow(nextStageId)) {
-      const errMsg = 'לא הקלדת ספרה מתאימה\n' + composeMessage(stageRow);
-      console.log(`[Webhook][POST] Next state id not found for option ${selectedOption} ("${nextStageId}"). Sending error:\n${errMsg}`);
-      await sendWhatsappReply(from, errMsg);
-      return res.sendStatus(200);
-    }
-    const nextStageRow = getStageRow(nextStageId);
-    if (isFinalState(nextStageRow)) {
-      userStates.delete(from);
-      console.log(`[Webhook][POST] Next stage is terminal (${nextStageId}). Sending and clearing state:\n${nextStageRow[1] || 'תודה!'}`);
-      await sendWhatsappReply(from, nextStageRow[1] || 'תודה!');
-      return res.sendStatus(200);
-    }
-    userStates.set(from, nextStageId);
-    const answer = composeMessage(nextStageRow);
-    console.log(`[Webhook][POST] Progressing to stage ${nextStageId}. Reply to ${from}:\n${answer}`);
-    await sendWhatsappReply(from, answer);
+    
     return res.sendStatus(200);
-
   } catch (error) {
     console.error('[Webhook][POST][ERROR]', error);
-    return res.sendStatus(500);
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`[Server] Server is listening on port ${PORT}`);
