@@ -109,7 +109,6 @@ app.get('/webhook', (req, res) => {
 // --- Main webhook logic ---
 app.post('/webhook', async (req, res) => {
     try {
-        // WhatsApp webhook: must respond 200 without sending if not a real message
         const entryArray = req.body.entry;
         if (!entryArray || entryArray.length === 0) return res.sendStatus(200);
         const changes = entryArray[0].changes;
@@ -126,6 +125,7 @@ app.post('/webhook', async (req, res) => {
         let currentStage = userStates.get(from) || '0';
         let stageRow = sheetData.find(row => row[0] === currentStage);
         if (!stageRow) {
+            console.log(`[DEBUG] שלב לא נמצא בגיליון - reset ל-0. from=${from} currentStage=${currentStage}`);
             currentStage = '0';
             stageRow = sheetData.find(row => row[0] === currentStage);
         }
@@ -139,17 +139,25 @@ app.post('/webhook', async (req, res) => {
             return msg.trim();
         }
 
+        // LOG - אינפורמציה בסיסית
+        console.log(`[LOG][USER] from=${from} input='${userInput}' currentStage=${currentStage}`);
+
         // Handle selection cases
         if (userInput && currentStage !== '0') {
             const selectedOption = parseInt(userInput, 10);
             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+            console.log(`[DEBUG] input=${userInput}, selectedOption=${selectedOption}, validOptionsCount=${validOptionsCount}`);
+
             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                 const nextStageColIndex = 2 + (selectedOption - 1) * 2 + 1;
                 const nextStage = (stageRow[nextStageColIndex] || '').toString().trim();
+                console.log(`[DEBUG] nextStageColIndex=${nextStageColIndex} nextStage=${nextStage}`);
+
                 if (nextStage && (nextStage.toLowerCase() === 'final' || nextStage === '7')) {
                     // END conversation
                     userStates.delete(from);
                     const finalMessage = 'תודה ולהתראות!';
+                    console.log(`[INFO] שיחה הסתיימה עם משתמש ${from}`);
                     await axios.post(
                         `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                         {
@@ -161,12 +169,40 @@ app.post('/webhook', async (req, res) => {
                     );
                     return res.sendStatus(200);
                 } else if (nextStage) {
+                    // עדכון שלב!
                     currentStage = nextStage;
                     userStates.set(from, currentStage);
                     stageRow = sheetData.find(row => row[0] === currentStage);
+                    if (!stageRow) {
+                        // fallback מודפס ללוג
+                        console.log(`[ERROR] לא נמצא שלב ${currentStage} בגיליון`);
+                        await axios.post(
+                            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+                            {
+                                messaging_product: 'whatsapp',
+                                to: from,
+                                text: { body: 'שגיאת מערכת: שלב לא נמצא.' }
+                            },
+                            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+                        );
+                        return res.sendStatus(200);
+                    }
+                    const responseMessage = composeMessage(stageRow);
+                    console.log(`[SEND] מעביר משתמש ${from} לשלב ${currentStage}, הודעה: ${responseMessage}`);
+                    await axios.post(
+                        `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
+                        {
+                            messaging_product: 'whatsapp',
+                            to: from,
+                            text: { body: responseMessage }
+                        },
+                        { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+                    );
+                    return res.sendStatus(200);
                 } else {
                     // Invalid selection (but legal option input)
                     const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                    console.log(`[WARN] אפשרות חוקית אך שלב הבא ריק: from=${from}, input=${userInput}, row=${JSON.stringify(stageRow)}`);
                     await axios.post(
                         `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                         {
@@ -181,6 +217,7 @@ app.post('/webhook', async (req, res) => {
             } else {
                 // Invalid input (non-number or out of range)
                 const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                console.log(`[WARN] קלט לא חוקי: from=${from}, input=${userInput}, row=${JSON.stringify(stageRow)}`);
                 await axios.post(
                     `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                     {
@@ -197,6 +234,7 @@ app.post('/webhook', async (req, res) => {
         if (currentStage === '0') {
             userStates.set(from, currentStage);
             const responseMessage = composeMessage(stageRow);
+            console.log(`[SEND] שלח שלב 0 למשתמש ${from}: ${responseMessage}`);
             await axios.post(
                 `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
                 {
@@ -210,17 +248,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         // in-stage (not 0) after correct transition, send next stage message
-        const responseMessage = composeMessage(stageRow);
-        await axios.post(
-            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
-            {
-                messaging_product: 'whatsapp',
-                to: from,
-                text: { body: responseMessage }
-            },
-            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-        );
-        return res.sendStatus(200);
+        // [אמור להיתפס בתנאי בשלבים לעיל]
 
     } catch (error) {
         console.error('[Webhook][POST][ERROR]', error);
