@@ -8,7 +8,10 @@ const bodyParser = require('body-parser');
 const app = express();
 app.use(bodyParser.json());
 
-// משתני סביבה
+// הגדרה גלובלית של map לשימור מצב המשתמשים
+const userStates = new Map();
+
+// משתני סביבה...
 const {
     VERIFY_TOKEN,
     WHATSAPP_TOKEN,
@@ -43,7 +46,6 @@ const credentials = {
 const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
 
-// גישה ל-Google Sheets
 async function getAuth() {
     const auth = new google.auth.GoogleAuth({
         keyFile: keyFilePath,
@@ -62,7 +64,6 @@ async function getBotFlow() {
     return res.data.values;
 }
 
-// לוגיקה של בוט
 function composeMessage(row) {
     let msg = row[1] + '\n';
     for (let i = 2, count = 1; i < row.length; i += 2, count++) {
@@ -71,9 +72,7 @@ function composeMessage(row) {
     return msg;
 }
 
-const userStates = new Map();
-
-// אימות מול WhatsApp webhook
+// אימות webhook
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -85,7 +84,7 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// קבלת הודעה מ-WhatsApp ושליחת תשובה אוטומטית
+// ניהול מצבים מרובים למשתמשים
 app.post('/webhook', async (req, res) => {
     try {
         const from = req.body.from;
@@ -101,7 +100,6 @@ app.post('/webhook', async (req, res) => {
             stageRow = sheetData.find(row => row[0] === currentStage);
         }
 
-        // מימוש ניווט בין האפשרויות לפי תשובת המשתמש
         if (userInput && currentStage !== '0') {
             const selectedOption = parseInt(userInput, 10);
             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -129,6 +127,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         if (currentStage === '0') {
+            // שומר תחילת מצב
             userStates.set(from, currentStage);
             const responseMessage = composeMessage(stageRow);
             await sendWhatsappMessage(from, responseMessage);
@@ -140,7 +139,6 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-// שליחת הודעה ל-WhatsApp API (פונקציה חדשה)
 async function sendWhatsappMessage(to, message) {
     try {
         await axios.post(
