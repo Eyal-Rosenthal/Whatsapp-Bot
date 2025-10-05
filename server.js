@@ -125,7 +125,75 @@ app.post('/webhook', async (req, res) => {
         const userInput = (message.text && message.text.body) ? message.text.body.trim() : '';
 
         // קריאת הזרימה
+         let currentStage = userStates.get(from) || '0';
         const sheetData = await getBotFlow();
+/////////////////////////////////////////////////////////////////////////////////////////////from last working version.js
+    // Find current stage row
+    let stageRow = sheetData.find(row => row[0] === currentStage);
+
+    if (!stageRow) {
+      currentStage = '0';
+      stageRow = sheetData.find(row => row[0] === currentStage);
+    }
+
+    // Function to compose message with options from a stageRow
+    function composeMessage(row) {
+      let msg = row[1] + '\n';
+      for (let i = 2, optionCount = 1; i < row.length; i += 2, optionCount++) {
+        if (row[i]) msg += `${optionCount}. ${row[i]}\n`;
+      }
+      return msg;
+    }
+
+    // Trying to parse user input as option number, only if currentStage not '0'
+    if (userInput && currentStage !== '0') {
+      const selectedOption = parseInt(userInput, 10);
+
+      // Number of valid options in this stage
+      const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+
+      if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+        // Calculate next stage column index:
+        // options start at col 2 and 4 etc., next stage col is next column (3,5,...)
+        const nextStageColIndex = 2 * selectedOption + 1;
+        const nextStage = stageRow[nextStageColIndex];
+
+        if (nextStage?.toLowerCase() === 'final') {
+          // End conversation and reset
+          userStates.delete(from);
+          return res.status(200).json({
+            message: 'Conversation ended.',
+            data: 'תודה שיצרת קשר!'
+          });
+        } else if (nextStage) {
+          currentStage = nextStage;
+          userStates.set(from, currentStage);
+          stageRow = sheetData.find(row => row[0] === currentStage);
+        } else {
+          // If no valid next stage, treat as invalid input
+          const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n';
+          return res.status(200).json({
+            message: errorMsg + composeMessage(stageRow),
+            data: errorMsg + composeMessage(stageRow)
+          });
+        }
+      } else {
+        // Invalid option input - resend error and options
+        const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n';
+        return res.status(200).json({
+          message: errorMsg + composeMessage(stageRow),
+          data: errorMsg + composeMessage(stageRow)
+        });
+      }
+    } else if (currentStage === '0') {
+      userStates.set(from, currentStage);
+    }
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////current code
+/*
         let currentStage = userStates.get(from) || '0';
 
         // מציאת שורת השלב הנוכחי
@@ -193,6 +261,7 @@ app.post('/webhook', async (req, res) => {
         } else {
             // שליחת הודעת התחלה או אפשרויות לשלב נוכחי
             userStates.set(from, currentStage);
+            */
             const responseMessage = composeMessage(stageRow);
             await axios.post(
                 `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
