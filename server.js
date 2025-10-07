@@ -98,7 +98,7 @@ app.post('/webhook', async (req, res) => {
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
 
-                    // ========== פתיחה: כל משתמש חדש או אחרי סיום ====
+                    // התחלה חדשה – שלח תפריט ראשי, הבא יחכה לטיפול
                     if (endedSessions.has(from) || !userStates.has(from)) {
                         endedSessions.delete(from);
                         userStates.set(from, '0');
@@ -109,13 +109,14 @@ app.post('/webhook', async (req, res) => {
                             const responseMessage = composeMessage(stageRow);
                             await sendWhatsappMessage(from, responseMessage);
                         }
+                        // סיום מוחלט של טיפול — לא ממשיכים כלל!
                         continue;
                     }
 
-                    // ---- אם ממתין לפתיחה – נטרל את הדגל אך המשך לעבד את ההודעה הזו! ----
+                    // אם רק סיימנו את הברכה, נמחוק את הדגל – ונטפל בהודעה הזו כרגיל (ולא continue!).
                     if (mustSendIntro.has(from)) {
                         mustSendIntro.delete(from);
-                        continue; // **ממשיכים רק אם זו ההודעה שקיבלה את ברכת הפתיחה**
+                        // שים לב: ***כאן אין continue!*** עוברים ללוגיקה למטה – זו ההודעה השניה שצריכה להיחשב!
                     }
 
                     let currentStage = userStates.get(from) || '0';
@@ -136,13 +137,12 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // === שלב 0: עם טיפול נכון! ===
+                    // שלב 0: קלט חוקי או לא
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
 
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                            // כאן יש מעבר שלב אמיתי:
                             const nextStageColIndex = 2 * selectedOption + 1;
                             const nextStage = stageRow[nextStageColIndex];
                             if (nextStage && nextStage.toLowerCase() === 'final') {
@@ -166,13 +166,13 @@ app.post('/webhook', async (req, res) => {
                                 continue;
                             }
                         }
-                        // קלט לא חוקי בתפריט פתיחה:
+                        // קלט לא חוקי: שגיאה + תפריט
                         const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                         await sendWhatsappMessage(from, errorMsg);
                         continue;
                     }
 
-                    // === שלבים מתקדמים (ללא שינוי!) ===
+                    // שלבים מתקדמים
                     if (currentStage !== '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -218,6 +218,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
