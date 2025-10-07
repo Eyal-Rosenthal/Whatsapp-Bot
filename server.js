@@ -151,6 +151,7 @@ app.post('/webhook', async (req, res) => {
                             if (stageRow.length === 2) {
                                 // שלב סיום אמיתי - לנעול שיחה ולשלוח טקסט סיום מהשורה!
                                 userStates.delete(from);
+                                currentStage = '0';
                                 await sendWhatsappMessage(from, stageRow[1]);
                                 continue;
                             
