@@ -81,6 +81,82 @@ app.get('/webhook', (req, res) => {
     }
 });
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+app.post('/webhook', async (req, res) => {
+    try {
+        // עיבוד רק של הודעות עם type === 'text'
+        const entries = req.body.entry || [];
+        for (const entry of entries) {
+            if (!entry.changes) continue;
+            for (const change of entry.changes) {
+                const value = change.value;
+                if (!value || !Array.isArray(value.messages)) continue;
+                for (const message of value.messages) {
+                    // נטפל רק בהודעות מסוג 'text' שיש להן from ו-body
+                    if (message.type === 'text' && message.from && message.text && message.text.body) {
+                        const from = message.from.trim();
+                        const userInput = message.text.body.trim();
+
+                        let currentStage = userStates.get(from) || '0';
+                        const sheetData = await getBotFlow();
+                        let stageRow = sheetData.find(row => row[0] === currentStage);
+                        if (!stageRow) {
+                            currentStage = '0';
+                            userStates.set(from, '0');
+                            stageRow = sheetData.find(row => row[0] === '0');
+                        }
+                        // בחירה מתוך שלבים
+                        if (userInput && currentStage !== '0') {
+                            const selectedOption = parseInt(userInput, 10);
+                            const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+                            if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                                const nextStageColIndex = 2 * selectedOption + 1;
+                                const nextStage = stageRow[nextStageColIndex];
+                                if (nextStage && nextStage.toLowerCase() === 'final') {
+                                    userStates.delete(from);
+                                    await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                                    continue;
+                                } else if (nextStage) {
+                                    userStates.set(from, nextStage);
+                                    const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                    if (stageRowNew) {
+                                        const responseMessage = composeMessage(stageRowNew);
+                                        await sendWhatsappMessage(from, responseMessage);
+                                        continue;
+                                    } else {
+                                        await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                        continue;
+                                    }
+                                } else {
+                                    const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                                    await sendWhatsappMessage(from, errorMsg);
+                                    continue;
+                                }
+                            } else {
+                                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                                await sendWhatsappMessage(from, errorMsg);
+                                continue;
+                            }
+                        }
+                        // שלב ראשון למשתמש חדש או התחלתי
+                        if (currentStage === '0') {
+                            userStates.set(from, '0');
+                            const responseMessage = composeMessage(stageRow);
+                            await sendWhatsappMessage(from, responseMessage);
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('[Webhook][POST][ERROR]', error);
+        return res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
 app.post('/webhook', async (req, res) => {
     try {
         let from, userInput = '';
@@ -159,7 +235,8 @@ app.post('/webhook', async (req, res) => {
         console.error('[Webhook][POST][ERROR]', error);
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
-});
+});*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 async function sendWhatsappMessage(to, message) {
     try {
