@@ -46,22 +46,43 @@ const userStates = new Map();
 const endedSessions = new Set();
 const mustSendIntro = new Set();
 
-async function getAuth() {
+let botFlowData = null;
+const BOTFLOW_JSON = path.join(__dirname, 'botflow.json');
+
+async function loadBotFlowData() {
     const auth = new google.auth.GoogleAuth({
         keyFile: keyFilePath,
         scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
-    return await auth.getClient();
-}
-
-async function getBotFlow() {
-    const auth = await getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
     const res = await sheets.spreadsheets.values.get({
         spreadsheetId: GOOGLE_SHEET_ID,
         range: 'Sheet1',
     });
-    return res.data.values;
+    botFlowData = res.data.values;
+    fs.writeFileSync(BOTFLOW_JSON, JSON.stringify(botFlowData, null, 2), 'utf8');
+    console.log('[Loaded] Bot flow loaded into RAM and botflow.json');
+}
+
+// ===== Queue =====
+const userQueues = new Map();
+
+function enqueueUserTask(from, task) {
+    if (!userQueues.has(from)) userQueues.set(from, []);
+    const queue = userQueues.get(from);
+    queue.push(task);
+    if (queue.length === 1) runNextTask(from);
+}
+
+function runNextTask(from) {
+    const queue = userQueues.get(from);
+    if (!queue || queue.length === 0) return;
+    const nextTask = queue[0];
+    nextTask().finally(() => {
+        queue.shift();
+        if (queue.length > 0) runNextTask(from);
+        else userQueues.delete(from);
+    });
 }
 
 function composeMessage(row) {
@@ -83,28 +104,6 @@ async function sendWhatsappMessage(to, message) {
         console.error('[WhatsApp][SEND][ERROR]', err.response ? err.response.data : err.message);
     }
 }
-
-//=========== QUEUE PER USER ===========
-const userQueues = new Map();
-
-function enqueueUserTask(from, task) {
-    if (!userQueues.has(from)) userQueues.set(from, []);
-    const queue = userQueues.get(from);
-    queue.push(task);
-    if (queue.length === 1) runNextTask(from);
-}
-
-function runNextTask(from) {
-    const queue = userQueues.get(from);
-    if (!queue || queue.length === 0) return;
-    const nextTask = queue[0];
-    nextTask().finally(() => {
-        queue.shift();
-        if (queue.length > 0) runNextTask(from);
-        else userQueues.delete(from);
-    });
-}
-//=====================================
 
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
@@ -136,13 +135,12 @@ app.post('/webhook', async (req, res) => {
                     const userInput = message.text.body.trim();
 
                     enqueueUserTask(from, async () => {
-                        // התחלה חדשה – ברכה בלבד
+
                         if (endedSessions.has(from) || !userStates.has(from)) {
                             endedSessions.delete(from);
                             userStates.set(from, '0');
                             mustSendIntro.add(from);
-                            const sheetData = await getBotFlow();
-                            const stageRow = sheetData.find(row => row[0] === '0');
+                            const stageRow = botFlowData.find(row => row[0] === '0');
                             if (stageRow) {
                                 const responseMessage = composeMessage(stageRow);
                                 await sendWhatsappMessage(from, responseMessage);
@@ -151,19 +149,18 @@ app.post('/webhook', async (req, res) => {
                         }
                         if (mustSendIntro.has(from)) {
                             mustSendIntro.delete(from);
-                            return; // נותן להודעה השנייה להיכנס ללוגיקה הרגילה
+                            return;
                         }
 
                         let currentStage = userStates.get(from) || '0';
-                        const sheetData = await getBotFlow();
-                        let stageRow = sheetData.find(row => row[0] === currentStage);
+                        let stageRow = botFlowData.find(row => row[0] === currentStage);
+
                         if (!stageRow) {
                             currentStage = '0';
-                            stageRow = sheetData.find(row => row[0] === '0');
+                            stageRow = botFlowData.find(row => row[0] === '0');
                             userStates.set(from, '0');
                         }
 
-                        // שלב סיום: רק 2 תאים
                         if (stageRow.length === 2) {
                             userStates.delete(from);
                             endedSessions.add(from);
@@ -184,7 +181,7 @@ app.post('/webhook', async (req, res) => {
                                     return;
                                 } else if (nextStage) {
                                     userStates.set(from, nextStage);
-                                    const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                    const stageRowNew = botFlowData.find(row => row[0] === nextStage);
                                     if (stageRowNew && stageRowNew.length === 2) {
                                         userStates.delete(from);
                                         endedSessions.add(from);
@@ -203,7 +200,6 @@ app.post('/webhook', async (req, res) => {
                             return;
                         }
 
-                        // שלבים מתקדמים
                         if (currentStage !== '0') {
                             const selectedOption = parseInt(userInput, 10);
                             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -217,7 +213,7 @@ app.post('/webhook', async (req, res) => {
                                     return;
                                 } else if (nextStage) {
                                     userStates.set(from, nextStage);
-                                    const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                    const stageRowNew = botFlowData.find(row => row[0] === nextStage);
                                     if (stageRowNew && stageRowNew.length === 2) {
                                         userStates.delete(from);
                                         endedSessions.add(from);
@@ -250,6 +246,10 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`[Server] Server is listening on port ${PORT}`);
+loadBotFlowData().then(() => {
+    app.listen(PORT, () => {
+        console.log(`[Server] Server is listening on port ${PORT}`);
+    });
+}).catch(err => {
+    console.error('[Startup][Sheet][ERROR]', err);
 });
