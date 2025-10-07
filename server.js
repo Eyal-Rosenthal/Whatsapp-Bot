@@ -98,31 +98,24 @@ app.post('/webhook', async (req, res) => {
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
 
-                    // התחלת סשן חדש (או אחרי סיום) – שולח פתיחה בלבד, לא משנה מה הגיע
-                    if (
-                        endedSessions.has(from) ||
-                        !userStates.has(from) ||
-                        mustSendIntro.has(from)
-                    ) {
-                        if (!mustSendIntro.has(from)) {
-                            endedSessions.delete(from);
-                            userStates.set(from, '0');
-                            mustSendIntro.add(from);
-                        }
+                    // ========== פתיחה: כל משתמש חדש או אחרי סיום ====
+                    if (endedSessions.has(from) || !userStates.has(from)) {
+                        endedSessions.delete(from);
+                        userStates.set(from, '0');
+                        mustSendIntro.add(from);
                         const sheetData = await getBotFlow();
                         const stageRow = sheetData.find(row => row[0] === '0');
                         if (stageRow) {
                             const responseMessage = composeMessage(stageRow);
                             await sendWhatsappMessage(from, responseMessage);
                         }
-                        // לא מוחקים כאן את הדגל! הוא יימחק רק בהודעה הבאה.
                         continue;
                     }
 
-                    // כאן מתחילים לעבד הודעות "שנייה" והלאה—נטרל את הדגל
+                    // ---- אם ממתין לפתיחה – נטרל את הדגל אך המשך לעבד את ההודעה הזו! ----
                     if (mustSendIntro.has(from)) {
                         mustSendIntro.delete(from);
-                        continue;
+                        continue; // **ממשיכים רק אם זו ההודעה שקיבלה את ברכת הפתיחה**
                     }
 
                     let currentStage = userStates.get(from) || '0';
@@ -143,12 +136,13 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // שלב 0: תגובה רגילה כולל שגיאה
+                    // === שלב 0: עם טיפול נכון! ===
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
 
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                            // כאן יש מעבר שלב אמיתי:
                             const nextStageColIndex = 2 * selectedOption + 1;
                             const nextStage = stageRow[nextStageColIndex];
                             if (nextStage && nextStage.toLowerCase() === 'final') {
@@ -172,13 +166,13 @@ app.post('/webhook', async (req, res) => {
                                 continue;
                             }
                         }
-                        // ==== שליחת הודעת שגיאה + מסך פתיחה ====
+                        // קלט לא חוקי בתפריט פתיחה:
                         const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                         await sendWhatsappMessage(from, errorMsg);
                         continue;
                     }
 
-                    // שלבים מתקדמים
+                    // === שלבים מתקדמים (ללא שינוי!) ===
                     if (currentStage !== '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -224,6 +218,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
