@@ -82,7 +82,6 @@ app.get('/webhook', (req, res) => {
 });
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 const endedSessions = new Set();
 const mustSendIntro = new Set();
 
@@ -105,7 +104,6 @@ app.post('/webhook', async (req, res) => {
                         !userStates.has(from) ||
                         mustSendIntro.has(from)
                     ) {
-                        // למשתמש חדש – מוסיפים אותו ל־mustSendIntro (לא מוחקים בשלב זה)
                         if (!mustSendIntro.has(from)) {
                             endedSessions.delete(from);
                             userStates.set(from, '0');
@@ -117,7 +115,7 @@ app.post('/webhook', async (req, res) => {
                             const responseMessage = composeMessage(stageRow);
                             await sendWhatsappMessage(from, responseMessage);
                         }
-                        // *לא* למחוק כאן את הדגל! הוא יימחק רק בהודעה הבאה.
+                        // לא מוחקים כאן את הדגל! הוא יימחק רק בהודעה הבאה.
                         continue;
                     }
 
@@ -145,11 +143,10 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // שלב 0: תגובה רגילה
+                    // שלב 0: חזור כאן!
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-////////////////////////////////////////////////////////////////////////////////////////
 
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                             const nextStageColIndex = 2 * selectedOption + 1;
@@ -175,9 +172,9 @@ app.post('/webhook', async (req, res) => {
                                 continue;
                             }
                         }
-                        // אין בחירה: חזור על מסך פתיחה
-                        const responseMessage = composeMessage(stageRow);
-                        await sendWhatsappMessage(from, responseMessage);
+                        // ==== תיקון: שליחת הודעת שגיאה + פתיחה ====
+                        const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                        await sendWhatsappMessage(from, errorMsg);
                         continue;
                     }
 
