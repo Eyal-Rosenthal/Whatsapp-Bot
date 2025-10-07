@@ -175,13 +175,13 @@ app.post('/webhook', async (req, res) => {
                                 }
                                 continue;
                             }
-                         } else {
+                         } /*else {
                                 const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                                 await sendWhatsappMessage(from, errorMsg);
                                 continue;
                             }
                         } 
-                        /*else {
+                        else {
                             const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                             await sendWhatsappMessage(from, errorMsg);
                             continue;
