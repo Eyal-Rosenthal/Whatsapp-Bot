@@ -82,6 +82,8 @@ app.get('/webhook', (req, res) => {
 });
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
+const endedSessions = new Set();
+
 app.post('/webhook', async (req, res) => {
     try {
         const entries = req.body.entry || [];
@@ -92,8 +94,11 @@ app.post('/webhook', async (req, res) => {
                 if (!Array.isArray(value.messages)) continue;
                 for (const message of value.messages) {
                     if (message.type !== 'text' || !message.from || !message.text || !message.text.body) continue;
-
                     const from = message.from.trim();
+
+                    // אחרי סיום סשן לא עונים יותר
+                    if (endedSessions.has(from)) continue;
+
                     const userInput = message.text.body.trim();
                     let currentStage = userStates.get(from) || '0';
                     const sheetData = await getBotFlow();
@@ -104,14 +109,15 @@ app.post('/webhook', async (req, res) => {
                         userStates.set(from, '0');
                     }
 
-                    // ======= בדיקת שלב סיום (רק עמודות 0+1 - אין אופציות המשך) =======
+                    // אם הגענו לשלב סיום (רק שני תאים בשורה)
                     if (stageRow.length === 2) {
                         userStates.delete(from);
+                        endedSessions.add(from);
                         await sendWhatsappMessage(from, stageRow[1]);
                         continue;
                     }
 
-                    //=== כמו קודם: טיפול במצב 0 ===
+                    // --- מעבר שלבים רגיל כמו קודם ---
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -120,14 +126,15 @@ app.post('/webhook', async (req, res) => {
                             const nextStage = stageRow[nextStageColIndex];
                             if (nextStage && nextStage.toLowerCase() === 'final') {
                                 userStates.delete(from);
+                                endedSessions.add(from);
                                 await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
                                 continue;
                             } else if (nextStage) {
                                 userStates.set(from, nextStage);
                                 const stageRowNew = sheetData.find(row => row[0] === nextStage);
-                                // --- גם פה בדוק אם זה שלב סיום ---
                                 if (stageRowNew && stageRowNew.length === 2) {
                                     userStates.delete(from);
+                                    endedSessions.add(from);
                                     await sendWhatsappMessage(from, stageRowNew[1]);
                                 } else if (stageRowNew) {
                                     const responseMessage = composeMessage(stageRowNew);
@@ -138,13 +145,10 @@ app.post('/webhook', async (req, res) => {
                                 continue;
                             }
                         }
-                        // לא נבחר מספר: משיבים תפריט פתיחה
                         const responseMessage = composeMessage(stageRow);
                         await sendWhatsappMessage(from, responseMessage);
                         continue;
                     }
-
-                    //=== טיפול בשלבים רגילים (לא 0) ===
                     if (currentStage !== '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -153,14 +157,15 @@ app.post('/webhook', async (req, res) => {
                             const nextStage = stageRow[nextStageColIndex];
                             if (nextStage && nextStage.toLowerCase() === 'final') {
                                 userStates.delete(from);
+                                endedSessions.add(from);
                                 await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
                                 continue;
                             } else if (nextStage) {
                                 userStates.set(from, nextStage);
                                 const stageRowNew = sheetData.find(row => row[0] === nextStage);
-                                // --- בדיקת שלב סיום כאן גם ---
                                 if (stageRowNew && stageRowNew.length === 2) {
                                     userStates.delete(from);
+                                    endedSessions.add(from);
                                     await sendWhatsappMessage(from, stageRowNew[1]);
                                 } else if (stageRowNew) {
                                     const responseMessage = composeMessage(stageRowNew);
@@ -189,6 +194,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
