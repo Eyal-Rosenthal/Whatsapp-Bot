@@ -147,10 +147,18 @@ app.post('/webhook', async (req, res) => {
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                             const nextStageColIndex = 2 * selectedOption + 1;
                             const nextStage = stageRow[nextStageColIndex];
+                            // מחוץ ללולאת אופציות, אחרי שליפת stageRow:
+                            if (stageRow.length === 2) {
+                                // שלב סיום אמיתי - לנעול שיחה ולשלוח טקסט סיום מהשורה!
+                                userStates.delete(from);
+                                await sendWhatsappMessage(from, stageRow[1]);
+                                continue;
+                            
+/*
                             if (nextStage && nextStage.toLowerCase() === 'final') {
                                 userStates.delete(from);
                                 await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                                continue;
+                                continue;*/
                             } else if (nextStage) {
                                 userStates.set(from, nextStage);
                                 const stageRowNew = sheetData.find(row => row[0] === nextStage);
