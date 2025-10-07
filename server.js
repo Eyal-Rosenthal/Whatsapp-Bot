@@ -84,33 +84,61 @@ app.get('/webhook', (req, res) => {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 app.post('/webhook', async (req, res) => {
     try {
-        // לאבחון ושחזורים
-        // console.log('[DEBUG] req.body:', JSON.stringify(req.body, null, 2));
         const entries = req.body.entry || [];
         for (const entry of entries) {
             const changes = entry.changes || [];
             for (const change of changes) {
                 const value = change.value || {};
-                // טיפוסי webhook: רק אם קיימת מערך messages נטפל באירוע.
                 if (!Array.isArray(value.messages)) continue;
                 for (const message of value.messages) {
-                    // נחצה רק הודעות טקסט עם מזהה משתמש תקין
                     if (message.type !== 'text' || !message.from || !message.text || !message.text.body) continue;
 
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
-
-                    // ------ לוגיקת המעבר בין מצבים ------
                     let currentStage = userStates.get(from) || '0';
                     const sheetData = await getBotFlow();
                     let stageRow = sheetData.find(row => row[0] === currentStage);
                     if (!stageRow) {
                         currentStage = '0';
-                        userStates.set(from, '0');
                         stageRow = sheetData.find(row => row[0] === '0');
+                        userStates.set(from, '0');
                     }
 
-                    if (userInput && currentStage !== '0') {
+                    //--------- טיפול נכון במצב 0: ---------
+                    if (currentStage === '0') {
+                        // בדוק אם המשתמש שלח קלט של מספר תקף במצב 0
+                        const selectedOption = parseInt(userInput, 10);
+                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                            // מעבר שלב מהמסך הראשי למצב נבחר
+                            const nextStageColIndex = 2 * selectedOption + 1;
+                            const nextStage = stageRow[nextStageColIndex];
+                            if (nextStage && nextStage.toLowerCase() === 'final') {
+                                userStates.delete(from);
+                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                                continue;
+                            } else if (nextStage) {
+                                userStates.set(from, nextStage);
+                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                if (stageRowNew) {
+                                    const responseMessage = composeMessage(stageRowNew);
+                                    await sendWhatsappMessage(from, responseMessage);
+                                    continue;
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                    continue;
+                                }
+                            }
+                        }
+                        // אם המשתמש לא הכניס בחירה, שולחים לו שוב את ההודעה של מצב 0
+                        userStates.set(from, '0');
+                        const responseMessage = composeMessage(stageRow);
+                        await sendWhatsappMessage(from, responseMessage);
+                        continue;
+                    }
+
+                    //--------- טיפול במצבים כלליים (לא 0): ---------
+                    if (currentStage !== '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
@@ -142,14 +170,6 @@ app.post('/webhook', async (req, res) => {
                             continue;
                         }
                     }
-
-                    // שירה של שלב ראשון אם אין שלב קודם
-                    if (currentStage === '0') {
-                        userStates.set(from, '0');
-                        const responseMessage = composeMessage(stageRow);
-                        await sendWhatsappMessage(from, responseMessage);
-                        continue;
-                    }
                 }
             }
         }
@@ -159,6 +179,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
