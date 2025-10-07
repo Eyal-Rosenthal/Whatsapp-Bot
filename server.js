@@ -5,11 +5,9 @@ const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
 
-console.log('Required modules loaded successfully');
 const app = express();
 app.use(bodyParser.json());
 
-// משתני סביבה
 const {
     type,
     project_id,
@@ -29,7 +27,6 @@ const {
     WHATSAPP_PHONE,
 } = process.env;
 
-// יצירת credentials.json
 const credentials = {
     type,
     project_id,
@@ -44,12 +41,9 @@ const credentials = {
 };
 const keyFilePath = path.join(__dirname, 'credentials.json');
 fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
-console.log('[ENV] credentials.json file created at', keyFilePath);
 
-// שמירת סטטוסים למשתמשים
 const userStates = new Map();
 
-// פונקציות Google Sheets
 async function getAuth() {
     const auth = new google.auth.GoogleAuth({
         keyFile: keyFilePath,
@@ -76,7 +70,6 @@ function composeMessage(row) {
     return msg.trim();
 }
 
-// Webhook verification
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -88,15 +81,9 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// Webhook handler - עם שליפה נכונה ממבנה WhatsApp Business API
 app.post('/webhook', async (req, res) => {
     try {
-        console.log('[DEBUG] req.body:', JSON.stringify(req.body, null, 2));
-
-        // שליפה ממבנה webhook של WhatsApp Business API
-        let from = null;
-        let userInput = '';
-
+        let from, userInput = '';
         if (req.body.entry && req.body.entry.length > 0) {
             const entry = req.body.entry[0];
             if (entry.changes && entry.changes.length > 0) {
@@ -118,30 +105,38 @@ app.post('/webhook', async (req, res) => {
 
         let currentStage = userStates.get(from) || '0';
         const sheetData = await getBotFlow();
+
         let stageRow = sheetData.find(row => row[0] === currentStage);
         if (!stageRow) {
             currentStage = '0';
-            stageRow = sheetData.find(row => row[0] === currentStage);
+            userStates.set(from, '0');
+            stageRow = sheetData.find(row => row[0] === '0');
         }
 
-        // ניהול מעבר שלבים
+        // מעבר שלב רק אם בוצעה בחירה (ולא שלב ראשוני)
         if (userInput && currentStage !== '0') {
             const selectedOption = parseInt(userInput, 10);
             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-
             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                 const nextStageColIndex = 2 * selectedOption + 1;
                 const nextStage = stageRow[nextStageColIndex];
-
-                if (nextStage?.toLowerCase() === 'final') {
+                if (nextStage && nextStage.toLowerCase() === 'final') {
                     userStates.delete(from);
                     await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
                     return res.sendStatus(200);
                 } else if (nextStage) {
-                    currentStage = nextStage;
-                    userStates.set(from, currentStage);
-                    stageRow = sheetData.find(row => row[0] === currentStage);
+                    userStates.set(from, nextStage);
+                    const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                    if (stageRowNew) {
+                        const responseMessage = composeMessage(stageRowNew);
+                        await sendWhatsappMessage(from, responseMessage);
+                        return res.sendStatus(200);
+                    } else {
+                        await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                        return res.sendStatus(200);
+                    }
                 } else {
+                    // בחירה לא תקפה - משיבים שוב עם אותן אפשרויות
                     const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                     await sendWhatsappMessage(from, errorMsg);
                     return res.sendStatus(200);
@@ -153,21 +148,19 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        // שליחת שלב ראשוני או כל שלב מחדש
+        // שלב ראשון תמיד - שואלים שאלה ראשונה
         if (currentStage === '0') {
-            userStates.set(from, currentStage);
+            userStates.set(from, '0');
+            const responseMessage = composeMessage(stageRow);
+            await sendWhatsappMessage(from, responseMessage);
+            return res.sendStatus(200);
         }
-        const responseMessage = composeMessage(stageRow);
-        await sendWhatsappMessage(from, responseMessage);
-        return res.sendStatus(200);
-
     } catch (error) {
         console.error('[Webhook][POST][ERROR]', error);
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
 
-// שליחת הודעה ל-WhatsApp API
 async function sendWhatsappMessage(to, message) {
     try {
         await axios.post(
