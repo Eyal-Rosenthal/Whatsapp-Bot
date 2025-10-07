@@ -104,40 +104,43 @@ app.post('/webhook', async (req, res) => {
                         userStates.set(from, '0');
                     }
 
-                    //--------- טיפול נכון במצב 0: ---------
+                    //=====================================================
+                    // 1. טיפול מפורש למצב 0:
                     if (currentStage === '0') {
-                        // בדוק אם המשתמש שלח קלט של מספר תקף במצב 0
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+
+                        // אם המשתמש בחר באופציה תקפה מהתפריט
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                            // מעבר שלב מהמסך הראשי למצב נבחר
                             const nextStageColIndex = 2 * selectedOption + 1;
                             const nextStage = stageRow[nextStageColIndex];
+
+                            // אם זה שלב סיום
                             if (nextStage && nextStage.toLowerCase() === 'final') {
                                 userStates.delete(from);
                                 await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
                                 continue;
                             } else if (nextStage) {
+                                // למעשה פה נעשית הקפיצה לשלב החדש
                                 userStates.set(from, nextStage);
                                 const stageRowNew = sheetData.find(row => row[0] === nextStage);
                                 if (stageRowNew) {
                                     const responseMessage = composeMessage(stageRowNew);
                                     await sendWhatsappMessage(from, responseMessage);
-                                    continue;
                                 } else {
                                     await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
-                                    continue;
                                 }
+                                continue;
                             }
                         }
-                        // אם המשתמש לא הכניס בחירה, שולחים לו שוב את ההודעה של מצב 0
-                        userStates.set(from, '0');
+                        // לא נבחר מספר תקף: משיבים תפריט התחלה
                         const responseMessage = composeMessage(stageRow);
                         await sendWhatsappMessage(from, responseMessage);
                         continue;
                     }
+                    //=====================================================
 
-                    //--------- טיפול במצבים כלליים (לא 0): ---------
+                    // 2. טיפול עבור שלבים אחרים (לא 0):
                     if (currentStage !== '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -154,11 +157,10 @@ app.post('/webhook', async (req, res) => {
                                 if (stageRowNew) {
                                     const responseMessage = composeMessage(stageRowNew);
                                     await sendWhatsappMessage(from, responseMessage);
-                                    continue;
                                 } else {
                                     await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
-                                    continue;
                                 }
+                                continue;
                             } else {
                                 const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                                 await sendWhatsappMessage(from, errorMsg);
