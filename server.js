@@ -83,7 +83,7 @@ app.get('/webhook', (req, res) => {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 const endedSessions = new Set();
-const awaitingFirstInput = new Set();
+const mustSendIntro = new Set();
 
 app.post('/webhook', async (req, res) => {
     try {
@@ -98,32 +98,19 @@ app.post('/webhook', async (req, res) => {
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
 
-                    // משתמש שסיים - איפוס כל הסשן
-                    if (endedSessions.has(from)) {
+                    // --- התחלה טריה, או ממשתמש שסיים וניסה לשלוח הודעה: תן פתיחה בלבד
+                    if (endedSessions.has(from) || !userStates.has(from) || mustSendIntro.has(from)) {
                         endedSessions.delete(from);
-                        userStates.delete(from);
-                        awaitingFirstInput.add(from);
-                        // שלח מסך פתיחה בלבד, התעלם מתוכן ההודעה
-                        const sheetData = await getBotFlow();
-                        const stageRow = sheetData.find(row => row[0] === '0');
-                        if (stageRow) {
-                            userStates.set(from, '0');
-                            const responseMessage = composeMessage(stageRow);
-                            await sendWhatsappMessage(from, responseMessage);
-                        }
-                        continue;
-                    }
+                        userStates.set(from, '0');
+                        mustSendIntro.add(from); // נשלח פתיחה, אבל נשאיר את הדגל ON עד אחרי שליחת הפתיחה
 
-                    // משתמש חדש או משתמש שממתין לפתיחה - שליחת מסך פתיחה בלבד
-                    if (!userStates.has(from) || awaitingFirstInput.has(from)) {
-                        awaitingFirstInput.delete(from);
                         const sheetData = await getBotFlow();
                         const stageRow = sheetData.find(row => row[0] === '0');
                         if (stageRow) {
-                            userStates.set(from, '0');
                             const responseMessage = composeMessage(stageRow);
                             await sendWhatsappMessage(from, responseMessage);
                         }
+                        mustSendIntro.delete(from); // בהודעה הבאה כבר תעבור ללוגיקה רגילה
                         continue;
                     }
 
@@ -145,7 +132,7 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // שלב 0: אחרי הפתיחה, רק ההודעה השנייה מטפלת
+                    // שלב 0: תגובה רגילה רק מההודעה השניה
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -226,6 +213,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*const endedSessions = new Set();
