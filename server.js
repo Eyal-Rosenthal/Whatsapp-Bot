@@ -82,7 +82,6 @@ app.get('/webhook', (req, res) => {
 });
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 const endedSessions = new Set();
 
 app.post('/webhook', async (req, res) => {
@@ -98,19 +97,11 @@ app.post('/webhook', async (req, res) => {
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
 
-                    // --- לאחר סיום, תמיד איפוס (ראסט) לסשן ---
+                    // אם המשתמש סיים סשן, מחק ונקה—זכור: אין continue!
                     if (endedSessions.has(from)) {
                         endedSessions.delete(from);
                         userStates.delete(from);
-                        // התחלה מחדש ממצב 0, כל הודעה (מס' או טקסט)
-                        const sheetData = await getBotFlow();
-                        const stageRow = sheetData.find(row => row[0] === '0');
-                        if (stageRow) {
-                            userStates.set(from, '0');
-                            const responseMessage = composeMessage(stageRow);
-                            await sendWhatsappMessage(from, responseMessage);
-                        }
-                        continue;
+                        // (לא continue!)
                     }
 
                     let currentStage = userStates.get(from) || '0';
@@ -122,7 +113,7 @@ app.post('/webhook', async (req, res) => {
                         userStates.set(from, '0');
                     }
 
-                    // --- שלב סיום: רק עמודות 0+1 ---
+                    // שלב סיום: רק 2 תאים
                     if (stageRow.length === 2) {
                         userStates.delete(from);
                         endedSessions.add(from);
@@ -130,7 +121,6 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // --- תפריט התחלה ---
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -165,7 +155,6 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // --- שלבים מתקדמים ---
                     if (currentStage !== '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
