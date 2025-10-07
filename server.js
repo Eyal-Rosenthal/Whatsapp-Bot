@@ -152,9 +152,6 @@ app.post('/webhook', async (req, res) => {
 ////////////////////////////////////////////////////////////////////////////////////////
 
 
-
-
-////////////////////////////////////////////////////////////////////////////////////////
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                             const nextStageColIndex = 2 * selectedOption + 1;
                             const nextStage = stageRow[nextStageColIndex];
@@ -178,16 +175,17 @@ app.post('/webhook', async (req, res) => {
                                 }
                                 continue;
                             }
-                                                    } else {
+                         } else {
                                 const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                                 await sendWhatsappMessage(from, errorMsg);
                                 continue;
                             }
-                        } else {
+                        } 
+                        /*else {
                             const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                             await sendWhatsappMessage(from, errorMsg);
                             continue;
-                        }
+                        }*/
                         
                         // אין בחירה: חזור על מסך פתיחה
                         const responseMessage = composeMessage(stageRow);
