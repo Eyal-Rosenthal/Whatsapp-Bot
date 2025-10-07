@@ -104,6 +104,120 @@ app.post('/webhook', async (req, res) => {
                         userStates.set(from, '0');
                     }
 
+                    // ======= בדיקת שלב סיום (רק עמודות 0+1 - אין אופציות המשך) =======
+                    if (stageRow.length === 2) {
+                        userStates.delete(from);
+                        await sendWhatsappMessage(from, stageRow[1]);
+                        continue;
+                    }
+
+                    //=== כמו קודם: טיפול במצב 0 ===
+                    if (currentStage === '0') {
+                        const selectedOption = parseInt(userInput, 10);
+                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                            const nextStageColIndex = 2 * selectedOption + 1;
+                            const nextStage = stageRow[nextStageColIndex];
+                            if (nextStage && nextStage.toLowerCase() === 'final') {
+                                userStates.delete(from);
+                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                                continue;
+                            } else if (nextStage) {
+                                userStates.set(from, nextStage);
+                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                // --- גם פה בדוק אם זה שלב סיום ---
+                                if (stageRowNew && stageRowNew.length === 2) {
+                                    userStates.delete(from);
+                                    await sendWhatsappMessage(from, stageRowNew[1]);
+                                } else if (stageRowNew) {
+                                    const responseMessage = composeMessage(stageRowNew);
+                                    await sendWhatsappMessage(from, responseMessage);
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                }
+                                continue;
+                            }
+                        }
+                        // לא נבחר מספר: משיבים תפריט פתיחה
+                        const responseMessage = composeMessage(stageRow);
+                        await sendWhatsappMessage(from, responseMessage);
+                        continue;
+                    }
+
+                    //=== טיפול בשלבים רגילים (לא 0) ===
+                    if (currentStage !== '0') {
+                        const selectedOption = parseInt(userInput, 10);
+                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                            const nextStageColIndex = 2 * selectedOption + 1;
+                            const nextStage = stageRow[nextStageColIndex];
+                            if (nextStage && nextStage.toLowerCase() === 'final') {
+                                userStates.delete(from);
+                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                                continue;
+                            } else if (nextStage) {
+                                userStates.set(from, nextStage);
+                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                // --- בדיקת שלב סיום כאן גם ---
+                                if (stageRowNew && stageRowNew.length === 2) {
+                                    userStates.delete(from);
+                                    await sendWhatsappMessage(from, stageRowNew[1]);
+                                } else if (stageRowNew) {
+                                    const responseMessage = composeMessage(stageRowNew);
+                                    await sendWhatsappMessage(from, responseMessage);
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                }
+                                continue;
+                            } else {
+                                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                                await sendWhatsappMessage(from, errorMsg);
+                                continue;
+                            }
+                        } else {
+                            const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                            await sendWhatsappMessage(from, errorMsg);
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('[Webhook][POST][ERROR]', error);
+        return res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+/*
+app.post('/webhook', async (req, res) => {
+    try {
+        const entries = req.body.entry || [];
+        for (const entry of entries) {
+            const changes = entry.changes || [];
+            for (const change of changes) {
+                const value = change.value || {};
+                if (!Array.isArray(value.messages)) continue;
+                for (const message of value.messages) {
+                    if (message.type !== 'text' || !message.from || !message.text || !message.text.body) continue;
+
+                    const from = message.from.trim();
+                    const userInput = message.text.body.trim();
+                    let currentStage = userStates.get(from) || '0';
+                    const sheetData = await getBotFlow();
+                    let stageRow = sheetData.find(row => row[0] === currentStage);
+                    if (!stageRow) {
+                        currentStage = '0';
+                        stageRow = sheetData.find(row => row[0] === '0');
+                        userStates.set(from, '0');
+                    }
+
                     //=====================================================
                     // 1. טיפול מפורש למצב 0:
                     if (currentStage === '0') {
@@ -151,15 +265,8 @@ app.post('/webhook', async (req, res) => {
                             if (stageRow.length === 2) {
                                 // שלב סיום אמיתי - לנעול שיחה ולשלוח טקסט סיום מהשורה!
                                 userStates.delete(from);
-                                currentStage = '0';
                                 await sendWhatsappMessage(from, stageRow[1]);
                                 continue;
-                            
-/*
-                            if (nextStage && nextStage.toLowerCase() === 'final') {
-                                userStates.delete(from);
-                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                                continue;*/
                             } else if (nextStage) {
                                 userStates.set(from, nextStage);
                                 const stageRowNew = sheetData.find(row => row[0] === nextStage);
@@ -190,7 +297,7 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
-
+*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
