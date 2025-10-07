@@ -49,7 +49,7 @@ console.log('[ENV] credentials.json file created at', keyFilePath);
 // שמירת סטטוסים למשתמשים
 const userStates = new Map();
 
-// פקציית AUTH של גוגל
+// פונקציות Google Sheets
 async function getAuth() {
     const auth = new google.auth.GoogleAuth({
         keyFile: keyFilePath,
@@ -58,7 +58,6 @@ async function getAuth() {
     return await auth.getClient();
 }
 
-// קריאת Google Sheets
 async function getBotFlow() {
     const auth = await getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
@@ -69,7 +68,6 @@ async function getBotFlow() {
     return res.data.values;
 }
 
-// פונקציה לבניית הודעת התשובה עם אפשרויות
 function composeMessage(row) {
     let msg = row[1] + '\n';
     for (let i = 2, count = 1; i < row.length; i += 2, count++) {
@@ -90,103 +88,28 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////
+// Webhook handler - עם שליפה נכונה ממבנה WhatsApp Business API
 app.post('/webhook', async (req, res) => {
     try {
         console.log('[DEBUG] req.body:', JSON.stringify(req.body, null, 2));
-        // טיפול רק ב-eventים מסוג messages
-        const entry = req.body.entry;
-        if (!entry || !Array.isArray(entry)) return res.sendStatus(400);
 
-        for (const ent of entry) {
-            const changes = ent.changes;
-            if (!changes || !Array.isArray(changes)) continue;
+        // שליפה ממבנה webhook של WhatsApp Business API
+        let from = null;
+        let userInput = '';
 
-            for (const change of changes) {
-                const value = change.value;
-                if (value && value.messages && Array.isArray(value.messages)) {
-                    for (const message of value.messages) {
-                        const from = message.from;
-                        const userInput = message.text && message.text.body ? message.text.body.trim() : '';
-
-                        if (!from) {
-                            console.error('[ERROR] "from" missing in message object');
-                            continue;
-                        }
-
-                        let currentStage = userStates.get(from) || '0';
-                        const sheetData = await getBotFlow();
-                        let stageRow = sheetData.find(row => row[0] === currentStage);
-                        if (!stageRow) {
-                            currentStage = '0';
-                            stageRow = sheetData.find(row => row[0] === currentStage);
-                        }
-
-                        function composeMessage(row) {
-                            let msg = row[1] + '\n';
-                            for (let i = 2, count = 1; i < row.length; i += 2, count++) {
-                                if (row[i]) msg += `${count}. ${row[i]}\n`;
-                            }
-                            return msg.trim();
-                        }
-
-                        if (userInput && currentStage !== '0') {
-                            const selectedOption = parseInt(userInput, 10);
-                            const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-
-                            if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                                const nextStageColIndex = 2 * selectedOption + 1;
-                                const nextStage = stageRow[nextStageColIndex];
-
-                                if (nextStage?.toLowerCase() === 'final') {
-                                    userStates.delete(from);
-                                    await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                                    continue;
-                                } else if (nextStage) {
-                                    currentStage = nextStage;
-                                    userStates.set(from, currentStage);
-                                    stageRow = sheetData.find(row => row[0] === currentStage);
-                                } else {
-                                    const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                                    await sendWhatsappMessage(from, errorMsg);
-                                    continue;
-                                }
-                            } else {
-                                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                                await sendWhatsappMessage(from, errorMsg);
-                                continue;
-                            }
-                        }
-                        // שליחת שלב ראשון
-                        if (currentStage === '0') {
-                            userStates.set(from, currentStage);
-                        }
-                        const responseMessage = composeMessage(stageRow);
-                        await sendWhatsappMessage(from, responseMessage);
+        if (req.body.entry && req.body.entry.length > 0) {
+            const entry = req.body.entry[0];
+            if (entry.changes && entry.changes.length > 0) {
+                const change = entry.changes[0];
+                if (change.value && change.value.messages && change.value.messages.length > 0) {
+                    const message = change.value.messages[0];
+                    from = message.from;
+                    if (message.text && message.text.body) {
+                        userInput = message.text.body.trim();
                     }
                 }
             }
         }
-        return res.sendStatus(200);
-
-    } catch (error) {
-        console.error('[Webhook][POST][ERROR]', error);
-        return res.status(500).json({ error: 'Internal server error', details: error.message });
-    }
-});
-////////////////////////////////////////////////////////////////////////////////////////////////
-/*
-// Webhook handler - למבנה הפשוט שלך בלבד
-app.post('/webhook', async (req, res) => {
-    try {
-        console.log('[DEBUG] req.body:', JSON.stringify(req.body, null, 2));
-
-        // שליפה פשוטה ממבנה שטוח (מותאם ללוגים שלך בלבד!)
-        const from = req.body.from;
-        const userInput = req.body.body ? req.body.body.trim() : '';
 
         if (!from) {
             console.error('[ERROR] "from" is missing in webhook request');
@@ -195,7 +118,6 @@ app.post('/webhook', async (req, res) => {
 
         let currentStage = userStates.get(from) || '0';
         const sheetData = await getBotFlow();
-
         let stageRow = sheetData.find(row => row[0] === currentStage);
         if (!stageRow) {
             currentStage = '0';
@@ -243,7 +165,7 @@ app.post('/webhook', async (req, res) => {
         console.error('[Webhook][POST][ERROR]', error);
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
-});*/
+});
 
 // שליחת הודעה ל-WhatsApp API
 async function sendWhatsappMessage(to, message) {
