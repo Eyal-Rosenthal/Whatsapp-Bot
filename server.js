@@ -82,6 +82,7 @@ app.get('/webhook', (req, res) => {
 });
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 const endedSessions = new Set();
 const mustSendIntro = new Set();
 
@@ -98,19 +99,31 @@ app.post('/webhook', async (req, res) => {
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
 
-                    // --- התחלה טריה, או ממשתמש שסיים וניסה לשלוח הודעה: תן פתיחה בלבד
-                    if (endedSessions.has(from) || !userStates.has(from) || mustSendIntro.has(from)) {
-                        endedSessions.delete(from);
-                        userStates.set(from, '0');
-                        mustSendIntro.add(from); // נשלח פתיחה, אבל נשאיר את הדגל ON עד אחרי שליחת הפתיחה
-
+                    // התחלת סשן חדש (או אחרי סיום) – שולח פתיחה בלבד, לא משנה מה הגיע
+                    if (
+                        endedSessions.has(from) ||
+                        !userStates.has(from) ||
+                        mustSendIntro.has(from)
+                    ) {
+                        // למשתמש חדש – מוסיפים אותו ל־mustSendIntro (לא מוחקים בשלב זה)
+                        if (!mustSendIntro.has(from)) {
+                            endedSessions.delete(from);
+                            userStates.set(from, '0');
+                            mustSendIntro.add(from);
+                        }
                         const sheetData = await getBotFlow();
                         const stageRow = sheetData.find(row => row[0] === '0');
                         if (stageRow) {
                             const responseMessage = composeMessage(stageRow);
                             await sendWhatsappMessage(from, responseMessage);
                         }
-                        mustSendIntro.delete(from); // בהודעה הבאה כבר תעבור ללוגיקה רגילה
+                        // *לא* למחוק כאן את הדגל! הוא יימחק רק בהודעה הבאה.
+                        continue;
+                    }
+
+                    // כאן מתחילים לעבד הודעות "שנייה" והלאה—נטרל את הדגל
+                    if (mustSendIntro.has(from)) {
+                        mustSendIntro.delete(from);
                         continue;
                     }
 
@@ -132,7 +145,7 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     }
 
-                    // שלב 0: תגובה רגילה רק מההודעה השניה
+                    // שלב 0: תגובה רגילה
                     if (currentStage === '0') {
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
@@ -213,7 +226,6 @@ app.post('/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*const endedSessions = new Set();
