@@ -83,6 +83,152 @@ app.get('/webhook', (req, res) => {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 const endedSessions = new Set();
+const awaitingFirstInput = new Set();
+
+app.post('/webhook', async (req, res) => {
+    try {
+        const entries = req.body.entry || [];
+        for (const entry of entries) {
+            const changes = entry.changes || [];
+            for (const change of changes) {
+                const value = change.value || {};
+                if (!Array.isArray(value.messages)) continue;
+                for (const message of value.messages) {
+                    if (message.type !== 'text' || !message.from || !message.text || !message.text.body) continue;
+                    const from = message.from.trim();
+                    const userInput = message.text.body.trim();
+
+                    // משתמש שסיים - איפוס כל הסשן
+                    if (endedSessions.has(from)) {
+                        endedSessions.delete(from);
+                        userStates.delete(from);
+                        awaitingFirstInput.add(from);
+                        // שלח מסך פתיחה בלבד, התעלם מתוכן ההודעה
+                        const sheetData = await getBotFlow();
+                        const stageRow = sheetData.find(row => row[0] === '0');
+                        if (stageRow) {
+                            userStates.set(from, '0');
+                            const responseMessage = composeMessage(stageRow);
+                            await sendWhatsappMessage(from, responseMessage);
+                        }
+                        continue;
+                    }
+
+                    // משתמש חדש או משתמש שממתין לפתיחה - שליחת מסך פתיחה בלבד
+                    if (!userStates.has(from) || awaitingFirstInput.has(from)) {
+                        awaitingFirstInput.delete(from);
+                        const sheetData = await getBotFlow();
+                        const stageRow = sheetData.find(row => row[0] === '0');
+                        if (stageRow) {
+                            userStates.set(from, '0');
+                            const responseMessage = composeMessage(stageRow);
+                            await sendWhatsappMessage(from, responseMessage);
+                        }
+                        continue;
+                    }
+
+                    let currentStage = userStates.get(from) || '0';
+                    const sheetData = await getBotFlow();
+                    let stageRow = sheetData.find(row => row[0] === currentStage);
+
+                    if (!stageRow) {
+                        currentStage = '0';
+                        stageRow = sheetData.find(row => row[0] === '0');
+                        userStates.set(from, '0');
+                    }
+
+                    // שלב סיום: רק 2 תאים
+                    if (stageRow.length === 2) {
+                        userStates.delete(from);
+                        endedSessions.add(from);
+                        await sendWhatsappMessage(from, stageRow[1]);
+                        continue;
+                    }
+
+                    // שלב 0: אחרי הפתיחה, רק ההודעה השנייה מטפלת
+                    if (currentStage === '0') {
+                        const selectedOption = parseInt(userInput, 10);
+                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+
+                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                            const nextStageColIndex = 2 * selectedOption + 1;
+                            const nextStage = stageRow[nextStageColIndex];
+                            if (nextStage && nextStage.toLowerCase() === 'final') {
+                                userStates.delete(from);
+                                endedSessions.add(from);
+                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                                continue;
+                            } else if (nextStage) {
+                                userStates.set(from, nextStage);
+                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                if (stageRowNew && stageRowNew.length === 2) {
+                                    userStates.delete(from);
+                                    endedSessions.add(from);
+                                    await sendWhatsappMessage(from, stageRowNew[1]);
+                                } else if (stageRowNew) {
+                                    const responseMessage = composeMessage(stageRowNew);
+                                    await sendWhatsappMessage(from, responseMessage);
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                }
+                                continue;
+                            }
+                        }
+                        // אין בחירה: חזור על מסך פתיחה
+                        const responseMessage = composeMessage(stageRow);
+                        await sendWhatsappMessage(from, responseMessage);
+                        continue;
+                    }
+
+                    // שלבים מתקדמים
+                    if (currentStage !== '0') {
+                        const selectedOption = parseInt(userInput, 10);
+                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
+                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
+                            const nextStageColIndex = 2 * selectedOption + 1;
+                            const nextStage = stageRow[nextStageColIndex];
+                            if (nextStage && nextStage.toLowerCase() === 'final') {
+                                userStates.delete(from);
+                                endedSessions.add(from);
+                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                                continue;
+                            } else if (nextStage) {
+                                userStates.set(from, nextStage);
+                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
+                                if (stageRowNew && stageRowNew.length === 2) {
+                                    userStates.delete(from);
+                                    endedSessions.add(from);
+                                    await sendWhatsappMessage(from, stageRowNew[1]);
+                                } else if (stageRowNew) {
+                                    const responseMessage = composeMessage(stageRowNew);
+                                    await sendWhatsappMessage(from, responseMessage);
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                }
+                                continue;
+                            } else {
+                                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                                await sendWhatsappMessage(from, errorMsg);
+                                continue;
+                            }
+                        } else {
+                            const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
+                            await sendWhatsappMessage(from, errorMsg);
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('[Webhook][POST][ERROR]', error);
+        return res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*const endedSessions = new Set();
 
 app.post('/webhook', async (req, res) => {
     try {
@@ -199,123 +345,8 @@ app.post('/webhook', async (req, res) => {
         console.error('[Webhook][POST][ERROR]', error);
         return res.status(500).json({ error: 'Internal server error', details: error.message });
     }
-});
+});*/
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/*
-const endedSessions = new Set();
-
-app.post('/webhook', async (req, res) => {
-    try {
-        const entries = req.body.entry || [];
-        for (const entry of entries) {
-            const changes = entry.changes || [];
-            for (const change of changes) {
-                const value = change.value || {};
-                if (!Array.isArray(value.messages)) continue;
-                for (const message of value.messages) {
-                    if (message.type !== 'text' || !message.from || !message.text || !message.text.body) continue;
-                    const from = message.from.trim();
-
-                    // אחרי סיום סשן לא עונים יותר
-                    if (endedSessions.has(from)) continue;
-
-                    const userInput = message.text.body.trim();
-                    let currentStage = userStates.get(from) || '0';
-                    const sheetData = await getBotFlow();
-                    let stageRow = sheetData.find(row => row[0] === currentStage);
-                    if (!stageRow) {
-                        currentStage = '0';
-                        stageRow = sheetData.find(row => row[0] === '0');
-                        userStates.set(from, '0');
-                    }
-
-                    // אם הגענו לשלב סיום (רק שני תאים בשורה)
-                    if (stageRow.length === 2) {
-                        userStates.delete(from);
-                        endedSessions.add(from);
-                        await sendWhatsappMessage(from, stageRow[1]);
-                        continue;
-                    }
-
-                    // --- מעבר שלבים רגיל כמו קודם ---
-                    if (currentStage === '0') {
-                        const selectedOption = parseInt(userInput, 10);
-                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                            const nextStageColIndex = 2 * selectedOption + 1;
-                            const nextStage = stageRow[nextStageColIndex];
-                            if (nextStage && nextStage.toLowerCase() === 'final') {
-                                userStates.delete(from);
-                                endedSessions.add(from);
-                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                                continue;
-                            } else if (nextStage) {
-                                userStates.set(from, nextStage);
-                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
-                                if (stageRowNew && stageRowNew.length === 2) {
-                                    userStates.delete(from);
-                                    endedSessions.add(from);
-                                    await sendWhatsappMessage(from, stageRowNew[1]);
-                                } else if (stageRowNew) {
-                                    const responseMessage = composeMessage(stageRowNew);
-                                    await sendWhatsappMessage(from, responseMessage);
-                                } else {
-                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
-                                }
-                                continue;
-                            }
-                        }
-                        const responseMessage = composeMessage(stageRow);
-                        await sendWhatsappMessage(from, responseMessage);
-                        continue;
-                    }
-                    if (currentStage !== '0') {
-                        const selectedOption = parseInt(userInput, 10);
-                        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-                        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                            const nextStageColIndex = 2 * selectedOption + 1;
-                            const nextStage = stageRow[nextStageColIndex];
-                            if (nextStage && nextStage.toLowerCase() === 'final') {
-                                userStates.delete(from);
-                                endedSessions.add(from);
-                                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                                continue;
-                            } else if (nextStage) {
-                                userStates.set(from, nextStage);
-                                const stageRowNew = sheetData.find(row => row[0] === nextStage);
-                                if (stageRowNew && stageRowNew.length === 2) {
-                                    userStates.delete(from);
-                                    endedSessions.add(from);
-                                    await sendWhatsappMessage(from, stageRowNew[1]);
-                                } else if (stageRowNew) {
-                                    const responseMessage = composeMessage(stageRowNew);
-                                    await sendWhatsappMessage(from, responseMessage);
-                                } else {
-                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
-                                }
-                                continue;
-                            } else {
-                                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                                await sendWhatsappMessage(from, errorMsg);
-                                continue;
-                            }
-                        } else {
-                            const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                            await sendWhatsappMessage(from, errorMsg);
-                            continue;
-                        }
-                    }
-                }
-            }
-        }
-        res.sendStatus(200);
-    } catch (error) {
-        console.error('[Webhook][POST][ERROR]', error);
-        return res.status(500).json({ error: 'Internal server error', details: error.message });
-    }
-});
-*/
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
