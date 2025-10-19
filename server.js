@@ -152,7 +152,7 @@ app.get('/webhook', (req, res) => {
                 enqueueUserTask(from, async () => {
                     let currentStage = userStates.get(from);
 
-                    // ---- התחלה: בפעם הראשונה בלבד! ----
+                    // ---- התחלה רשמית ----
                     if (!currentStage) {
                         userStates.set(from, '0');
                         currentStage = '0';
@@ -165,13 +165,14 @@ app.get('/webhook', (req, res) => {
 
                     let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-                    // ---- שלב סיום: איפוס אמיתי ----
+                    // ---- שלב סיום: איפוס והפסקה אמיתית ----
                     if (stageRow && stageRow.length === 2) {
+                        console.log('שולח הודעת סיום ומאפס', from, currentStage);
                         userStates.delete(from);
                         endedSessions.delete(from);
                         mustSendIntro.delete(from);
                         await sendWhatsappMessage(from, stageRow[1]);
-                        return;
+                        return; // סיים!
                     }
 
                     // ---- קלט טקסט חופשי ----
@@ -182,14 +183,16 @@ app.get('/webhook', (req, res) => {
                         const fieldName = (stageRowBase[2] || '').replace(/[\[\]]/g, '').trim();
                         userAnswers.get(from)[fieldName] = userInput;
                         const nextStage = stageRowBase[3];
+
                         if (nextStage) {
                             const nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                             if (nextRow && nextRow.length === 2) {
+                                console.log('שולח הודעת סיום ומאפס אחרי טקסט', from, nextStage);
                                 userStates.delete(from);
                                 endedSessions.delete(from);
                                 mustSendIntro.delete(from);
                                 await sendWhatsappMessage(from, nextRow[1]);
-                                return;
+                                return; // סיים!
                             } else if (nextRow) {
                                 if (nextRow.length > 2 && /^\[.*\]/.test(nextRow[2]?.trim?.())) {
                                     await sendWhatsappMessage(from, nextRow[1]);
@@ -203,13 +206,12 @@ app.get('/webhook', (req, res) => {
                                 await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
                                 return;
                             }
-                        } else {
-                            // אין nextStage
-                            userStates.delete(from);
-                            endedSessions.delete(from);
-                            mustSendIntro.delete(from);
-                            return;
                         }
+                        // nextStage ריק: אמור לאפס
+                        userStates.delete(from);
+                        endedSessions.delete(from);
+                        mustSendIntro.delete(from);
+                        return;
                     }
 
                     // ---- אפשרויות רגיל ----
@@ -251,6 +253,7 @@ app.get('/webhook', (req, res) => {
                     // ---- קלט לא חוקי ----
                     await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
                 });
+
 
             
         }
