@@ -145,26 +145,6 @@ app.get('/webhook', (req, res) => {
                                         
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-function enqueueUserTask(from, task) {
-    if (!userQueues.has(from)) userQueues.set(from, []);
-    const queue = userQueues.get(from);
-    queue.push(task);
-    if (queue.length === 1) runNextTask(from);
-}
-
-function runNextTask(from) {
-    const queue = userQueues.get(from);
-    if (!queue || queue.length === 0) return;
-    const nextTask = queue[0];
-    nextTask().finally(() => {
-        queue.shift();
-        if (queue.length > 0) runNextTask(from);
-        else userQueues.delete(from);
-    });
-}
-
-// --------------------------------------------------------
-
 /*
 הקריאה:
 enqueueUserTask(from, async () => { ... })
