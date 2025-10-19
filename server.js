@@ -167,7 +167,34 @@ app.post('/webhook', async (req, res) => {
                             await sendWhatsappMessage(from, stageRow[1]);
                             return;
                         }
+                        
+////////////////////////////////////////////////////////////////////////////////
 
+// *** שלב טקסט חופשי ***
+if (
+    stageRow.length >= 3 && // שני תאים מינימום
+    /^\[.*\]$/.test(stageRow[1]) // בודק אם זה שלב טקסט (סוגריים מרובעים)
+) {
+    // שמירה לדוג', אפשרות: userProfile[from] = userInput;
+    // next stage always בשדה הבא
+    const nextStage = stageRow[2];
+    if (nextStage) {
+        userStates.set(from, nextStage);
+        const nextStageRow = botFlowData.find(row => row[0] === nextStage);
+        if (nextStageRow && nextStageRow.length === 2) {
+            userStates.delete(from);
+            endedSessions.add(from);
+            await sendWhatsappMessage(from, nextStageRow[1]);
+        } else if (nextStageRow) {
+            const responseMessage = composeMessage(nextStageRow);
+            await sendWhatsappMessage(from, responseMessage);
+        } else {
+            await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+        }
+        return;
+    }
+}
+/////////////////////////////////////////////////////////////////////////////////////////
                         if (currentStage === '0') {
                             const selectedOption = parseInt(userInput, 10);
                             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
