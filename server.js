@@ -203,6 +203,7 @@ const justEndedSession = new Set();
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
+                            justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                             await sendWhatsappMessage(from, nextRow[1]);
                             // session מאופס, פנייה הבאה תתחיל מחדש!
                             return;
@@ -251,6 +252,7 @@ const justEndedSession = new Set();
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
+                            justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                             await sendWhatsappMessage(from, nextRow[1]);
                             // session מאופס, פנייה הבאה תתחיל מחדש!
                             return;
