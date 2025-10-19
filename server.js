@@ -5,6 +5,27 @@ const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
 const lastActivity = new Map();
+const waiting_interval = 5; // דקות
+
+
+
+/*///////mail sender
+const nodemailer = require('nodemailer');
+const SUMMARY_EMAIL_TO = 'eyal.rosentha@gmail.com'; // היעד שאליו יישלחו הסיכומים
+// gmail או שרת smtp אחר שלך
+const EMAIL_FROM = 'eyal.rosenthal@gmail.com';
+const EMAIL_PASS = 'YOUR_APP_PASSWORD_HERE';
+// אופציונלי: הגדר גם user בסביבה/סקריפט
+
+const mailTransport = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+    user: EMAIL_FROM,
+    pass: EMAIL_PASS
+    }
+});
+
+////////////////////////////////////////////////////////////*/
 
 const app = express();
 app.use(bodyParser.json());
@@ -159,6 +180,10 @@ app.post('/webhook', async (req, res) => {
 
                         // שלב סיום - שורה עם שתי עמודות בלבד
                         if (stageRow && stageRow.length === 2) {
+                            /*if (String(stageRow[0]).trim() === '9') {
+                                // כאן להפעיל את שליחת הסיכום
+                                await sendSessionSummaryEmail(from);
+                            }*/
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
@@ -175,6 +200,11 @@ app.post('/webhook', async (req, res) => {
                         ) {
                             await sendWhatsappMessage(from, stageRow[1]);
                             userStates.set(from, String(stageRow[0]).trim() + '_AWAITING_TEXT');
+
+                            /*//////////////      MAIL         /////////////////////////////////////////////////////////////
+                            if (!userAnswers.has(from)) userAnswers.set(from, {});
+                                    userAnswers.get(from)[fieldName] = userInput; // כך גם לטקסט חופשי וגם לבחירה
+                            //////////////////////////////////////////////////////////////////////////////////////////////*/
                             return;
                         }
 
@@ -206,6 +236,10 @@ app.post('/webhook', async (req, res) => {
                                     // שלב רגיל
                                     await sendWhatsappMessage(from, composeMessage(nextRow));
                                     userStates.set(from, String(nextStage).trim());
+                                    /*//////////////       MAIL        /////////////////////////////////////////////////////////////
+                                    if (!userAnswers.has(from)) userAnswers.set(from, {});
+                                    userAnswers.get(from)[fieldName] = userInput; // כך גם לטקסט חופשי וגם לבחירה
+                                    //////////////////////////////////////////////////////////////////////////////////////////////*/
                                     return;
                                 }
                                 // nextStage לא מזוהה: שגיאה, איפוס סשן ופתיחה מחדש
@@ -289,7 +323,7 @@ setInterval(async () => {
     const now = Date.now();
     for (const [from, time] of lastActivity.entries()) {
         // אם המשתמש עדיין בסשן ולא ענה 5 דקות
-        if (userStates.has(from) && now - time > 5 * 60 * 1000) {
+        if (userStates.has(from) && now - time > waiting_interval * 60 * 1000) {
             await sendWhatsappMessage(
                 from, 
                 'היי, ראינו שהפסקת את התהליך אז נסיים עכשיו ותמיד אפשר להתחיל מולינו שוב'
@@ -306,6 +340,48 @@ setInterval(async () => {
     }
 }, 60 * 1000); // כל דקה
 
+/*async function sendSessionSummaryEmail(from) {
+    const answers = userAnswers.get(from) || {};
+    // שלוף את השלבים (כמו שלב1 => [מזהה שורה, טקסט, אופציות...])
+    const summaryLines = [];
+    summaryLines.push('שלום, הגיעה פנייה חדשה מעוזי הבוט');
+
+    // עבור על כל מאפיין-משתמש שסונן במהלך הסשן
+    for (const [field, value] of Object.entries(answers)) {
+        // בדוק אם זה שדה עם בחירה מרובה ותרגם לטקסט
+        let label = field;
+        let textVal = value;
+
+        // מצא את השורה בגיליון המתאים (שווה ל-label) אם יש
+        const stageRow = botFlowData.find(row =>
+            row.some(cell => typeof cell === 'string' && cell.replace(/[\[\]]/g, '').trim() === field)
+        );
+        if (stageRow) {
+            // בדוק אם זה שלב בחירה
+            for (let i = 2, count = 1; i < stageRow.length; i += 2, count++) {
+                if (String(count) === String(value) && stageRow[i]) {
+                    textVal = stageRow[i];
+            break;
+            }
+          }
+        }
+        summaryLines.push(label + ': ' + textVal);
+    }    
+    summaryLines.push('יום טוב');
+
+    const mailOptions = {
+        from: EMAIL_FROM,
+        to: SUMMARY_EMAIL_TO,
+        subject: 'פנייה חדשה מעוזי הבוט',
+        text: summaryLines.join('\n')
+    };
+
+    try {
+        await mailTransport.sendMail(mailOptions);
+    } catch (error) {
+    console.error('[Mail][Send][Error]', error);
+    }
+}*/
 
 
 loadBotFlowData().then(() => {
