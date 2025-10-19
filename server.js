@@ -145,10 +145,10 @@ app.get('/webhook', (req, res) => {
                                         
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-                   enqueueUserTask(from, async () => {
-    // נקודת איפוס: אם אין סטייט, תמיד להתחיל מהתחלה
+enqueueUserTask(from, async () => {
     let currentStage = userStates.get(from);
 
+    // התחלה מחדש אם אין סטייט
     if (!currentStage) {
         userStates.set(from, '0');
         let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
@@ -158,7 +158,7 @@ app.get('/webhook', (req, res) => {
 
     let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-    // שלב סיום: שתי עמודות בלבד
+    // שלב סיום - שורה עם שתי עמודות בלבד
     if (stageRow && stageRow.length === 2) {
         userStates.delete(from);
         endedSessions.delete(from);
@@ -179,7 +179,7 @@ app.get('/webhook', (req, res) => {
         return;
     }
 
-    // טיפול מלא ב־AWAITING_TEXT כולל איפוס מוחלט
+    // טיפול ב־AWAITING_TEXT (צריך להמשיך רק אם nextStage באמת קיים!)
     if (String(currentStage).endsWith('_AWAITING_TEXT')) {
         const baseStage = currentStage.replace('_AWAITING_TEXT', '');
         const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
@@ -187,11 +187,10 @@ app.get('/webhook', (req, res) => {
         const fieldName = (stageRowBase[2] || '').replace(/[\[\]]/g, '').trim();
         userAnswers.get(from)[fieldName] = userInput;
         const nextStage = stageRowBase[3];
-
         if (nextStage) {
             let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
             if (nextRow && nextRow.length === 2) {
-                // כאן האיפוס קריטי: הסטייט נמחק לחלוטין! כל הודעה תתחיל מפתיחה.
+                // שלב סיום אמיתי
                 userStates.delete(from);
                 endedSessions.delete(from);
                 mustSendIntro.delete(from);
@@ -199,17 +198,26 @@ app.get('/webhook', (req, res) => {
                 return;
             }
             if (nextRow && nextRow.length >= 3 && /^\[.*\]$/.test(nextRow[2]?.trim?.())) {
+                // מעביר לשלב טקסט חופשי נוסף
                 await sendWhatsappMessage(from, nextRow[1]);
                 userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
                 return;
             }
             if (nextRow) {
+                // שלב רגיל
                 await sendWhatsappMessage(from, composeMessage(nextRow));
                 userStates.set(from, String(nextStage).trim());
                 return;
             }
+            // nextStage לא מזוהה: שגיאה, איפוס סשן ופתיחה מחדש
+            userStates.delete(from);
+            endedSessions.delete(from);
+            mustSendIntro.delete(from);
+            let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+            if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+            return;
         }
-        // אם nextStage אינו קיים, מחיקה מוחלטת – גם פה, לא מגיבים אחרת
+        // nextStage ריק: סשן הסתיים (בעיה בגיליון?) — לא עושים כלום.
         userStates.delete(from);
         endedSessions.delete(from);
         mustSendIntro.delete(from);
@@ -248,18 +256,22 @@ app.get('/webhook', (req, res) => {
                     userStates.set(from, String(nextStage).trim());
                     return;
                 }
+                // nextRow undefined
+                userStates.delete(from);
+                endedSessions.delete(from);
+                mustSendIntro.delete(from);
+                let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+                return;
             }
         }
     }
 
-    // רק אם יש שלב, והמשתמש עדיין פעיל – שלח שגיאת קלט; אחרת אל תגיב כלל כדי שיתאפס בפנייה הבאה.
+    // שליחת שגיאה — רק אם stageRow קיים וסטייט בתוקף
     if (stageRow && userStates.has(from)) {
         await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
     }
 });
-
-
-
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
