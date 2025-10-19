@@ -153,24 +153,30 @@ enqueueUserTask(from, async () => { ... })
                     enqueueUserTask(from, async () => {
                         let currentStage = userStates.get(from);
 
-                        // 1. בלימת כל קלט כשהצלחנו לאפס – איפוס סופי, אין כניסה ללולאה!
+                        // --- התחלה: מתי להעלות תפריט ראשון? ---
                         if (!currentStage) {
-                            // עבור להתחלה רק אחרי הודעה חדשה מהמשתמש (לא אוטומטית)
+                            // כשאין currentStage עבור משתמש – מתחיל חדש!
+                            userStates.set(from, '0');
+                            const startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                            if (startRow) {
+                                await sendWhatsappMessage(from, composeMessage(startRow));
+                            }
                             return;
                         }
 
                         let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-                        // 2. טיפול בשלב סיום (2 עמודות בלבד): איפוס, הצגה פעם אחת, ואז מאפשר התחלה רק עם הודעה חדשה
+                        // --- שלב סיום ---
                         if (stageRow && stageRow.length === 2) {
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
                             await sendWhatsappMessage(from, stageRow[1]);
+                            // אחרי זה: מחכים להודעה חדשה מהמשתמש (reset אמיתי)
                             return;
                         }
 
-                        // 3. טיפול בקלט טקסט חופשי
+                        // --- קלט טקסט חופשי ---
                         if (String(currentStage).endsWith('_AWAITING_TEXT')) {
                             const baseStage = currentStage.replace('_AWAITING_TEXT', '');
                             const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
@@ -203,7 +209,7 @@ enqueueUserTask(from, async () => { ... })
                             return;
                         }
 
-                        // 4. טיפול באפשרויות (שלב רגיל)
+                        // --- אפשרויות ---
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
@@ -239,9 +245,10 @@ enqueueUserTask(from, async () => { ... })
                             }
                         }
 
-                        // 5. קלט שגוי
+                        // --- שגיאה ---
                         await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
                     });
+
 
 
 
