@@ -168,6 +168,41 @@ app.get('/webhook', (req, res) => {
 
                         // (2) קלט טקסט חופשי
                         if (String(currentStage).endsWith('_AWAITING_TEXT')) {
+                            // בלוק טיפול בקליטת טקסט (קיים בכל התשובות כאן!)
+                            const baseStage = currentStage.replace('_AWAITING_TEXT', '');
+                            const stageRowBase = botFlowData.find(row => String(row[0]) === baseStage);
+
+                            if (!userAnswers.has(from)) userAnswers.set(from, {});
+                            const fieldName = (stageRowBase[2] || '').replace(/[\[\]]/g, '').trim();
+                            userAnswers.get(from)[fieldName] = userInput;
+                            const nextStage = stageRowBase[3];
+
+                            if (nextStage) {
+                                const nextRow = botFlowData.find(row => String(row[0]) === String(nextStage).trim());
+                                // שלב סיום? הצג וסיים!
+                                if (nextRow && nextRow.length === 2) {
+                                    userStates.delete(from);
+                                    endedSessions.delete(from);
+                                    await sendWhatsappMessage(from, nextRow[1]);
+                                    return;
+                                } else if (nextRow) {
+                                    // האם גם השלב הבא הוא טקסט חופשי?
+                                    if (nextRow.length > 2 && /^\[.*\]/.test(nextRow[2]?.trim?.())) {
+                                        await sendWhatsappMessage(from, nextRow[1]);
+                                        userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
+                                    } else {
+                                        await sendWhatsappMessage(from, composeMessage(nextRow));
+                                    }
+                                    return;
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                    return;
+                                }
+                            }
+                            return;
+                        }
+
+                        /*if (String(currentStage).endsWith('_AWAITING_TEXT')) {
                             const baseStage = currentStage.replace('_AWAITING_TEXT', '');
                             const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
                             if (!userAnswers.has(from)) userAnswers.set(from, {});
@@ -199,7 +234,7 @@ app.get('/webhook', (req, res) => {
                                 }
                             }
                             return;
-                        }
+                        }*/
 
                         // (3) קלט רגיל (מספרי)
                         const selectedOption = parseInt(userInput, 10);
