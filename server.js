@@ -144,15 +144,22 @@ app.get('/webhook', (req, res) => {
                     
                                         
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const justEndedSession = new Set();
+
             enqueueUserTask(from, async () => {
                 let currentStage = userStates.get(from);
 
-                // אם אין מצב — תמיד שולחים את התפריט הראשי (אחרי סיום או בפעם הראשונה)
+                // תחילת session אמיתי אחרי סיום (פנייה חדשה לאחר יציאה)
                 if (!currentStage) {
-                    userStates.set(from, '0');
-                    currentStage = '0';
-                    let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
-                    if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+                    if (justEndedSession.has(from)) {
+                        justEndedSession.delete(from);
+                        userStates.set(from, '0');
+                        currentStage = '0';
+                        let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                        if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+                    }
+                    // אחרת, פשוט מתעלמים מהודעות ריקות/ספאם
                     return;
                 }
 
@@ -163,8 +170,8 @@ app.get('/webhook', (req, res) => {
                     userStates.delete(from);
                     endedSessions.delete(from);
                     mustSendIntro.delete(from);
+                    justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                     await sendWhatsappMessage(from, stageRow[1]);
-                    // session מאופס, פנייה הבאה תתחיל מחדש!
                     return;
                 }
 
@@ -266,7 +273,7 @@ app.get('/webhook', (req, res) => {
                         return;
                     }
                 }
-
+                
                 // קלט לא חוקי — מחזירים הודעה רק אם המשתמש עדיין ב-session
                 if (userStates.has(from)) {
                     await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
