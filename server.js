@@ -147,7 +147,7 @@ app.get('/webhook', (req, res) => {
                 enqueueUserTask(from, async () => {
                     let currentStage = userStates.get(from);
 
-                    // 1. התחלה
+                    // התחלה - פנייה ראשונה
                     if (!currentStage) {
                         userStates.set(from, '0');
                         currentStage = '0';
@@ -158,7 +158,7 @@ app.get('/webhook', (req, res) => {
 
                     let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-                    // 2. סיום
+                    // שלב סיום — שתי עמודות בלבד
                     if (stageRow && stageRow.length === 2) {
                         userStates.delete(from);
                         endedSessions.delete(from);
@@ -167,18 +167,19 @@ app.get('/webhook', (req, res) => {
                         return;
                     }
 
-                    // === שלב קלט טקסט חופשי — כל שורה עם placeholder בעמודה 3 ===
+                    // קלט טקסט חופשי — כל שלב עם פלייסהולדר בעמודה 3
                     if (
                         stageRow &&
                         stageRow.length >= 3 &&
                         /^\[.*\]$/.test(stageRow[2]?.trim?.())
+                        && !String(currentStage).endsWith('_AWAITING_TEXT')
                     ) {
                         await sendWhatsappMessage(from, stageRow[1]);
                         userStates.set(from, String(stageRow[0]).trim() + '_AWAITING_TEXT');
                         return;
                     }
 
-                    // טיפול בקלט שהוזן בפועל (AWAITING_TEXT)
+                    // טיפול ב-AWAITING_TEXT בפועל (שמירה ומעבר לשלב הבא)
                     if (String(currentStage).endsWith('_AWAITING_TEXT')) {
                         const baseStage = currentStage.replace('_AWAITING_TEXT', '');
                         const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
@@ -188,9 +189,11 @@ app.get('/webhook', (req, res) => {
                         const nextStage = stageRowBase[3];
 
                         if (nextStage) {
+                            // מעבר לשלב הבא: הגדר סטייט חדש וחזור לפונקציה (רקורסיה)
                             userStates.set(from, String(nextStage).trim());
                             return enqueueUserTask(from, async () => {});
                         } else {
+                            // סוף flow לאחר טקסט חופשי, איפוס מלא
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
@@ -198,7 +201,7 @@ app.get('/webhook', (req, res) => {
                         }
                     }
 
-                    // 5. אפשרויות רגיל
+                    // בחירה מרובה (אפשרויות רגיל)
                     const selectedOption = parseInt(userInput, 10);
                     const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
                     if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
@@ -216,7 +219,7 @@ app.get('/webhook', (req, res) => {
                         }
                     }
 
-                    // 6. קלט לא חוקי
+                    // קלט לא חוקי — הצגת options שוב
                     await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
                 });
 
