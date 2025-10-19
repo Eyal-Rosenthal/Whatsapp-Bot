@@ -240,13 +240,13 @@ const justEndedSession = new Set();
                 if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                     const nextStageColIndex = 2 * selectedOption + 1;
                     const nextStage = stageRow[nextStageColIndex];
-                    if (nextStage && String(nextStage).toLowerCase() === 'final') {
+                    /*if (nextStage && String(nextStage).toLowerCase() === 'final') {
                         userStates.delete(from);
                         endedSessions.delete(from);
                         mustSendIntro.delete(from);
                         await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
                         return;
-                    } else if (nextStage) {
+                    } else*/ if (nextStage) {
                         let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                         if (nextRow && nextRow.length === 2) {
                             userStates.delete(from);
