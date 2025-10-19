@@ -186,7 +186,7 @@ app.get('/webhook', (req, res) => {
                                         }
 
                                         // **עכשיו חוזר לפונקציה הראשית:**
-                                        return enqueueUserTask(from, async () => {});
+                                        return;// enqueueUserTask(from, async () => {});
                                     }
 /*
                                     // מסלול קלט אפשרויות רגיל
