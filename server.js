@@ -141,19 +141,12 @@ app.get('/webhook', (req, res) => {
                                             continue;
                                         const from = message.from.trim();
                                         const userInput = message.text.body.trim();
-                    enqueueUserTask(from, async () => {
-                        // ----- (0) שלב סיום? איפוס בכל קלט -----
-                        let currentStage = userStates.get(from) || '0';
-                        let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
-                        if (stageRow && stageRow.length === 2) {
-                            userStates.delete(from);
-                            endedSessions.add(from);
-                            await sendWhatsappMessage(from, stageRow[1]);
-                            // מחזירים להביט להתחלה רק אחרי שליחת הודעה חדשה ע"י המשתמש
-                            return;
-                        }
+                    
+                                        
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-                        // ----- (1) התחלה -----
+                    enqueueUserTask(from, async () => {
+                        // (0) התחלה/סיום: אם לא מוגדר מצב, מאפס ומציג תפריט רק בהודעה ראשונה
                         if (endedSessions.has(from) || !userStates.has(from)) {
                             endedSessions.delete(from);
                             userStates.set(from, '0');
@@ -162,7 +155,19 @@ app.get('/webhook', (req, res) => {
                             return;
                         }
 
-                        // ----- (2) קלט טקסט חופשי -----
+                        let currentStage = userStates.get(from) || '0';
+                        let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
+
+                        // (1) שלב סיום מיידי (כך - אם מוחזרות רק שתי עמודות, שורה באה/קיימת)
+                        if (stageRow && stageRow.length === 2) {
+                            userStates.delete(from);
+                            endedSessions.add(from);
+                            await sendWhatsappMessage(from, stageRow[1]);
+                            // כאן נפסיק - אין מעבר לתפריט! תפריט יוצג רק בפנייה מחודשת
+                            return;
+                        }
+
+                        // (2) קלט טקסט חופשי
                         if (String(currentStage).endsWith('_AWAITING_TEXT')) {
                             const baseStage = currentStage.replace('_AWAITING_TEXT', '');
                             const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
@@ -172,11 +177,10 @@ app.get('/webhook', (req, res) => {
                             userAnswers.get(from)[fieldName] = userInput;
 
                             const nextStage = stageRowBase[3];
-                            // advance stage
                             if (nextStage) {
                                 userStates.set(from, String(nextStage).trim());
                                 const nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
-                                // בדיקת סיום גם אחרי קלט חופשי 
+                                // (2.1) שלב סיום אחרי קלט חופשי - מראה הודעת סיום בלבד
                                 if (nextRow && nextRow.length === 2) {
                                     userStates.delete(from);
                                     endedSessions.add(from);
@@ -196,7 +200,7 @@ app.get('/webhook', (req, res) => {
                             return;
                         }
 
-                        // ----- (3) קלט בחירה רגיל (תפריט) -----
+                        // (3) שלב אפשרויות רגיל
                         const selectedOption = parseInt(userInput, 10);
                         const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
                         if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
@@ -210,7 +214,7 @@ app.get('/webhook', (req, res) => {
                             } else if (nextStage) {
                                 userStates.set(from, String(nextStage).trim());
                                 const nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
-                                // גם כאן – בדיקת סוף
+                                // (3.1) שלב סיום אחרי אפשרות רגילה
                                 if (nextRow && nextRow.length === 2) {
                                     userStates.delete(from);
                                     endedSessions.add(from);
@@ -229,7 +233,8 @@ app.get('/webhook', (req, res) => {
                                 return;
                             }
                         }
-                        // ----- (4) קלט לא חוקי -----
+
+                        // קלט לא חוקי
                         const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
                         await sendWhatsappMessage(from, errorMsg);
                     });
