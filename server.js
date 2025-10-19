@@ -4,6 +4,7 @@ const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
 const bodyParser = require('body-parser');
+const lastActivity = new Map();
 
 const app = express();
 app.use(bodyParser.json());
@@ -123,300 +124,6 @@ app.get('/webhook', (req, res) => {
         return res.sendStatus(403);
 });
 
-                    app.post('/webhook', async (req, res) => {
-                        try {
-                            const entries = req.body.entry || [];
-                            for (const entry of entries) {
-                                const changes = entry.changes || [];
-                                for (const change of changes) {
-                                    const value = change.value || {};
-                                    if (!Array.isArray(value.messages)) continue;
-                                    for (const message of value.messages) {
-                                        if (
-                                            message.type !== 'text' ||
-                                            !message.from ||
-                                            !message.text ||
-                                            !message.text.body
-                                        )
-                                            continue;
-                                        const from = message.from.trim();
-                                        const userInput = message.text.body.trim();
-                    
-                                        
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-enqueueUserTask(from, async () => {
-    let currentStage = userStates.get(from);
-
-    // התחלה מחדש אם אין סטייט
-    if (!currentStage) {
-        userStates.set(from, '0');
-        let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
-        if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
-        return;
-    }
-
-    let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
-
-    // שלב סיום - שורה עם שתי עמודות בלבד
-    if (stageRow && stageRow.length === 2) {
-        userStates.delete(from);
-        endedSessions.delete(from);
-        mustSendIntro.delete(from);
-        await sendWhatsappMessage(from, stageRow[1]);
-        return;
-    }
-
-    // שלב קלט טקסט חופשי (לא ב־AWAITING_TEXT)
-    if (
-        stageRow &&
-        stageRow.length >= 3 &&
-        /^\[.*\]$/.test(stageRow[2]?.trim?.()) &&
-        !String(currentStage).endsWith('_AWAITING_TEXT')
-    ) {
-        await sendWhatsappMessage(from, stageRow[1]);
-        userStates.set(from, String(stageRow[0]).trim() + '_AWAITING_TEXT');
-        return;
-    }
-
-    // טיפול ב־AWAITING_TEXT (צריך להמשיך רק אם nextStage באמת קיים!)
-    if (String(currentStage).endsWith('_AWAITING_TEXT')) {
-        const baseStage = currentStage.replace('_AWAITING_TEXT', '');
-        const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
-        if (!userAnswers.has(from)) userAnswers.set(from, {});
-        const fieldName = (stageRowBase[2] || '').replace(/[\[\]]/g, '').trim();
-        userAnswers.get(from)[fieldName] = userInput;
-        const nextStage = stageRowBase[3];
-        if (nextStage) {
-            let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
-            if (nextRow && nextRow.length === 2) {
-                // שלב סיום אמיתי
-                userStates.delete(from);
-                endedSessions.delete(from);
-                mustSendIntro.delete(from);
-                await sendWhatsappMessage(from, nextRow[1]);
-                return;
-            }
-            if (nextRow && nextRow.length >= 3 && /^\[.*\]$/.test(nextRow[2]?.trim?.())) {
-                // מעביר לשלב טקסט חופשי נוסף
-                await sendWhatsappMessage(from, nextRow[1]);
-                userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
-                return;
-            }
-            if (nextRow) {
-                // שלב רגיל
-                await sendWhatsappMessage(from, composeMessage(nextRow));
-                userStates.set(from, String(nextStage).trim());
-                return;
-            }
-            // nextStage לא מזוהה: שגיאה, איפוס סשן ופתיחה מחדש
-            userStates.delete(from);
-            endedSessions.delete(from);
-            mustSendIntro.delete(from);
-            let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
-            if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
-            return;
-        }
-        // nextStage ריק: סשן הסתיים (בעיה בגיליון?) — לא עושים כלום.
-        userStates.delete(from);
-        endedSessions.delete(from);
-        mustSendIntro.delete(from);
-        return;
-    }
-
-    // שלב בחירה מרובה
-    if (stageRow) {
-        const selectedOption = parseInt(userInput, 10);
-        const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-        if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-            const nextStageColIndex = 2 * selectedOption + 1;
-            const nextStage = stageRow[nextStageColIndex];
-            if (nextStage && String(nextStage).toLowerCase() === 'final') {
-                userStates.delete(from);
-                endedSessions.delete(from);
-                mustSendIntro.delete(from);
-                await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                return;
-            } else if (nextStage) {
-                let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
-                if (nextRow && nextRow.length === 2) {
-                    userStates.delete(from);
-                    endedSessions.delete(from);
-                    mustSendIntro.delete(from);
-                    await sendWhatsappMessage(from, nextRow[1]);
-                    return;
-                }
-                if (nextRow && nextRow.length >= 3 && /^\[.*\]$/.test(nextRow[2]?.trim?.())) {
-                    await sendWhatsappMessage(from, nextRow[1]);
-                    userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
-                    return;
-                }
-                if (nextRow) {
-                    await sendWhatsappMessage(from, composeMessage(nextRow));
-                    userStates.set(from, String(nextStage).trim());
-                    return;
-                }
-                // nextRow undefined
-                userStates.delete(from);
-                endedSessions.delete(from);
-                mustSendIntro.delete(from);
-                let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
-                if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
-                return;
-            }
-        }
-    }
-
-    // שליחת שגיאה — רק אם stageRow קיים וסטייט בתוקף
-    if (stageRow && userStates.has(from)) {
-        await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
-    }
-});
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            
-        }
-    }
-}    
-                                            
-    
-        res.sendStatus(200);
-    } catch (error) {
-        console.error('[Webhook][POST][ERROR]', error);
-        res.status(500).json({ error: 'Internal server error', details: error.message });
-    }
-});
-
-loadBotFlowData().then(() => {
-    app.listen(PORT, () => {
-        console.log(`[Server] Server is listening on port ${PORT}`);
-    });
-}).catch(err => {
-    console.error('[Startup][Sheet][ERROR]', err);
-});
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////    Backup  /////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-/*const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const axios = require('axios');
-const { google } = require('googleapis');
-const bodyParser = require('body-parser');
-
-const app = express();
-app.use(bodyParser.json());
-
-const {
-    type,
-    project_id,
-    private_key_id,
-    private_key,
-    client_email,
-    client_id,
-    auth_uri,
-    token_uri,
-    auth_provider_x509_cert_url,
-    client_x509_cert_url,
-    VERIFY_TOKEN,
-    WHATSAPP_TOKEN,
-    PORT = 8080,
-    GOOGLE_SHEET_ID,
-    GCLOUD_PROJECT,
-    WHATSAPP_PHONE,
-} = process.env;
-
-const credentials = {
-    type,
-    project_id,
-    private_key_id,
-    private_key: private_key ? private_key.replace(/\\n/g, '\n') : undefined,
-    client_email,
-    client_id,
-    auth_uri,
-    token_uri,
-    auth_provider_x509_cert_url,
-    client_x509_cert_url,
-};
-const keyFilePath = path.join(__dirname, 'credentials.json');
-fs.writeFileSync(keyFilePath, JSON.stringify(credentials));
-
-const userStates = new Map();
-const endedSessions = new Set();
-const mustSendIntro = new Set();
-
-let botFlowData = null;
-const BOTFLOW_JSON = path.join(__dirname, 'botflow.json');
-
-async function loadBotFlowData() {
-    const auth = new google.auth.GoogleAuth({
-        keyFile: keyFilePath,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-    const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: GOOGLE_SHEET_ID,
-        range: 'Sheet1',
-    });
-    botFlowData = res.data.values;
-    fs.writeFileSync(BOTFLOW_JSON, JSON.stringify(botFlowData, null, 2), 'utf8');
-    console.log('[Loaded] Bot flow loaded into RAM and botflow.json');
-}
-
-// ===== Queue =====
-const userQueues = new Map();
-
-function enqueueUserTask(from, task) {
-    if (!userQueues.has(from)) userQueues.set(from, []);
-    const queue = userQueues.get(from);
-    queue.push(task);
-    if (queue.length === 1) runNextTask(from);
-}
-
-function runNextTask(from) {
-    const queue = userQueues.get(from);
-    if (!queue || queue.length === 0) return;
-    const nextTask = queue[0];
-    nextTask().finally(() => {
-        queue.shift();
-        if (queue.length > 0) runNextTask(from);
-        else userQueues.delete(from);
-    });
-}
-
-function composeMessage(row) {
-    let msg = row[1] + '\n';
-    for (let i = 2, count = 1; i < row.length; i += 2, count++) {
-        if (row[i]) msg += `${count}. ${row[i]}\n`;
-    }
-    return msg.trim();
-}
-
-async function sendWhatsappMessage(to, message) {
-    try {
-        await axios.post(
-            `https://graph.facebook.com/v18.0/${WHATSAPP_PHONE}/messages`,
-            { messaging_product: 'whatsapp', to, text: { body: message } },
-            { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-        );
-    } catch (err) {
-        console.error('[WhatsApp][SEND][ERROR]', err.response ? err.response.data : err.message);
-    }
-}
-
-app.get('/webhook', (req, res) => {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
-    if (mode === 'subscribe' && token === VERIFY_TOKEN)
-        return res.status(200).send(challenge);
-    else
-        return res.sendStatus(403);
-});
-
 app.post('/webhook', async (req, res) => {
     try {
         const entries = req.body.entry || [];
@@ -435,112 +142,141 @@ app.post('/webhook', async (req, res) => {
                         continue;
                     const from = message.from.trim();
                     const userInput = message.text.body.trim();
-
+                    
                     enqueueUserTask(from, async () => {
+                        lastActivity.set(from, Date.now()); // עדכן פעילות בכל פנייה
+                        let currentStage = userStates.get(from);
 
-                        if (endedSessions.has(from) || !userStates.has(from)) {
-                            endedSessions.delete(from);
+                        // התחלה מחדש אם אין סטייט
+                        if (!currentStage) {
                             userStates.set(from, '0');
-                            mustSendIntro.add(from);
-                            const stageRow = botFlowData.find(row => row[0] === '0');
-                            if (stageRow) {
-                                const responseMessage = composeMessage(stageRow);
-                                await sendWhatsappMessage(from, responseMessage);
-                            }
-                            return;
-                        }
-                        if (mustSendIntro.has(from)) {
-                            mustSendIntro.delete(from);
+                            let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                            if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
                             return;
                         }
 
-                        let currentStage = userStates.get(from) || '0';
-                        let stageRow = botFlowData.find(row => row[0] === currentStage);
+                        let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-                        if (!stageRow) {
-                            currentStage = '0';
-                            stageRow = botFlowData.find(row => row[0] === '0');
-                            userStates.set(from, '0');
-                        }
-
-                        if (stageRow.length === 2) {
+                        // שלב סיום - שורה עם שתי עמודות בלבד
+                        if (stageRow && stageRow.length === 2) {
                             userStates.delete(from);
-                            endedSessions.add(from);
+                            endedSessions.delete(from);
+                            mustSendIntro.delete(from);
                             await sendWhatsappMessage(from, stageRow[1]);
                             return;
                         }
 
-                        if (currentStage === '0') {
-                            const selectedOption = parseInt(userInput, 10);
-                            const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
-                            if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
-                                const nextStageColIndex = 2 * selectedOption + 1;
-                                const nextStage = stageRow[nextStageColIndex];
-                                if (nextStage && nextStage.toLowerCase() === 'final') {
-                                    userStates.delete(from);
-                                    endedSessions.add(from);
-                                    await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
-                                    return;
-                                } else if (nextStage) {
-                                    userStates.set(from, nextStage);
-                                    const stageRowNew = botFlowData.find(row => row[0] === nextStage);
-                                    if (stageRowNew && stageRowNew.length === 2) {
-                                        userStates.delete(from);
-                                        endedSessions.add(from);
-                                        await sendWhatsappMessage(from, stageRowNew[1]);
-                                    } else if (stageRowNew) {
-                                        const responseMessage = composeMessage(stageRowNew);
-                                        await sendWhatsappMessage(from, responseMessage);
-                                    } else {
-                                        await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
-                                    }
-                                    return;
-                                }
-                            }
-                            const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                            await sendWhatsappMessage(from, errorMsg);
+                        // שלב קלט טקסט חופשי (לא ב־AWAITING_TEXT)
+                        if (
+                            stageRow &&
+                            stageRow.length >= 3 &&
+                            /^\[.*\]$/.test(stageRow[2]?.trim?.()) &&
+                            !String(currentStage).endsWith('_AWAITING_TEXT')
+                        ) {
+                            await sendWhatsappMessage(from, stageRow[1]);
+                            userStates.set(from, String(stageRow[0]).trim() + '_AWAITING_TEXT');
                             return;
                         }
 
-                        if (currentStage !== '0') {
+                        // טיפול ב־AWAITING_TEXT (צריך להמשיך רק אם nextStage באמת קיים!)
+                        if (String(currentStage).endsWith('_AWAITING_TEXT')) {
+                            const baseStage = currentStage.replace('_AWAITING_TEXT', '');
+                            const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
+                            if (!userAnswers.has(from)) userAnswers.set(from, {});
+                            const fieldName = (stageRowBase[2] || '').replace(/[\[\]]/g, '').trim();
+                            userAnswers.get(from)[fieldName] = userInput;
+                            const nextStage = stageRowBase[3];
+                            if (nextStage) {
+                                let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
+                                if (nextRow && nextRow.length === 2) {
+                                    // שלב סיום אמיתי
+                                    userStates.delete(from);
+                                    endedSessions.delete(from);
+                                    mustSendIntro.delete(from);
+                                    await sendWhatsappMessage(from, nextRow[1]);
+                                    return;
+                                }
+                                if (nextRow && nextRow.length >= 3 && /^\[.*\]$/.test(nextRow[2]?.trim?.())) {
+                                    // מעביר לשלב טקסט חופשי נוסף
+                                    await sendWhatsappMessage(from, nextRow[1]);
+                                    userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
+                                    return;
+                                }
+                                if (nextRow) {
+                                    // שלב רגיל
+                                    await sendWhatsappMessage(from, composeMessage(nextRow));
+                                    userStates.set(from, String(nextStage).trim());
+                                    return;
+                                }
+                                // nextStage לא מזוהה: שגיאה, איפוס סשן ופתיחה מחדש
+                                userStates.delete(from);
+                                endedSessions.delete(from);
+                                mustSendIntro.delete(from);
+                                let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                                if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+                                return;
+                            }
+                            // nextStage ריק: סשן הסתיים (בעיה בגיליון?) — לא עושים כלום.
+                            userStates.delete(from);
+                            endedSessions.delete(from);
+                            mustSendIntro.delete(from);
+                            return;
+                        }
+
+                        // שלב בחירה מרובה
+                        if (stageRow) {
                             const selectedOption = parseInt(userInput, 10);
                             const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
                             if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
                                 const nextStageColIndex = 2 * selectedOption + 1;
                                 const nextStage = stageRow[nextStageColIndex];
-                                if (nextStage && nextStage.toLowerCase() === 'final') {
+                                if (nextStage && String(nextStage).toLowerCase() === 'final') {
                                     userStates.delete(from);
-                                    endedSessions.add(from);
+                                    endedSessions.delete(from);
+                                    mustSendIntro.delete(from);
                                     await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
                                     return;
                                 } else if (nextStage) {
-                                    userStates.set(from, nextStage);
-                                    const stageRowNew = botFlowData.find(row => row[0] === nextStage);
-                                    if (stageRowNew && stageRowNew.length === 2) {
+                                    let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
+                                    if (nextRow && nextRow.length === 2) {
                                         userStates.delete(from);
-                                        endedSessions.add(from);
-                                        await sendWhatsappMessage(from, stageRowNew[1]);
-                                    } else if (stageRowNew) {
-                                        const responseMessage = composeMessage(stageRowNew);
-                                        await sendWhatsappMessage(from, responseMessage);
-                                    } else {
-                                        await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                        endedSessions.delete(from);
+                                        mustSendIntro.delete(from);
+                                        await sendWhatsappMessage(from, nextRow[1]);
+                                        return;
                                     }
-                                    return;
-                                } else {
-                                    const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                                    await sendWhatsappMessage(from, errorMsg);
+                                    if (nextRow && nextRow.length >= 3 && /^\[.*\]$/.test(nextRow[2]?.trim?.())) {
+                                        await sendWhatsappMessage(from, nextRow[1]);
+                                        userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
+                                        return;
+                                    }
+                                    if (nextRow) {
+                                        await sendWhatsappMessage(from, composeMessage(nextRow));
+                                        userStates.set(from, String(nextStage).trim());
+                                        return;
+                                    }
+                                    // nextRow undefined
+                                    userStates.delete(from);
+                                    endedSessions.delete(from);
+                                    mustSendIntro.delete(from);
+                                    let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                                    if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
                                     return;
                                 }
-                            } else {
-                                const errorMsg = 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow);
-                                await sendWhatsappMessage(from, errorMsg);
                             }
                         }
+
+                        // שליחת שגיאה — רק אם stageRow קיים וסטייט בתוקף
+                        if (stageRow && userStates.has(from)) {
+                            await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
+                        }
                     });
-                }
-            }
+            
         }
+    }
+}    
+                                            
+    
         res.sendStatus(200);
     } catch (error) {
         console.error('[Webhook][POST][ERROR]', error);
@@ -548,10 +284,35 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+
+setInterval(async () => {
+    const now = Date.now();
+    for (const [from, time] of lastActivity.entries()) {
+        // אם המשתמש עדיין בסשן ולא ענה 5 דקות
+        if (userStates.has(from) && now - time > 5 * 60 * 1000) {
+            await sendWhatsappMessage(
+                from, 
+                'היי, ראינו שהפסקת את התהליך אז נסיים עכשיו ותמיד אפשר להתחיל מולינו שוב'
+            );
+            userStates.delete(from);
+            endedSessions.delete(from);
+            mustSendIntro.delete(from);
+            lastActivity.delete(from); // אופציונלי למחוק גם כאן
+        }
+        // אם הסשן כבר הסתיים, הסר מהמעקב
+        if (!userStates.has(from)) {
+            lastActivity.delete(from);
+        }
+    }
+}, 60 * 1000); // כל דקה
+
+
+
 loadBotFlowData().then(() => {
     app.listen(PORT, () => {
         console.log(`[Server] Server is listening on port ${PORT}`);
     });
 }).catch(err => {
     console.error('[Startup][Sheet][ERROR]', err);
-});*/
+});
+
