@@ -88,7 +88,7 @@ function runNextTask(from) {
 }
 
 
-function composeMessage(row) {
+/*function composeMessage(row) {
     // שלב טקסט חופשי: רק כותרת
     if (row.length > 2 && /^\[.*\]$/.test(row[2]?.trim?.())) return row[1];
     // שלב רגיל: כותרת + רשימת אפשרויות
@@ -97,7 +97,18 @@ function composeMessage(row) {
         if (row[i] && !/^\[.*\]$/.test(row[i])) msg += `${count}. ${row[i]}\n`;
     }
     return msg.trim();
+}*/
+function composeMessage(row) {
+    // אם יש placeholder אחד בלבד אחרי הכותרת — זה שלב קלט חופשי
+    if (row.length === 4 && /^\[.*\]$/.test(row[2]?.trim?.())) return row[1];
+    // מקרים רגילים
+    let msg = row[1] + '\n';
+    for (let i = 2, count = 1; i < row.length; i += 2, count++) {
+        if (row[i] && !/^\[.*\]$/.test(row[i])) msg += `${count}. ${row[i]}\n`;
+    }
+    return msg.trim();
 }
+
 
 
 async function sendWhatsappMessage(to, message) {
@@ -154,7 +165,7 @@ app.get('/webhook', (req, res) => {
                         let currentStage = userStates.get(from) || '0';
 
                         // === טיפול במצב AWAITING_TEXT ===
-                        if (String(currentStage).endsWith('_AWAITING_TEXT')) {
+                        /*if (String(currentStage).endsWith('_AWAITING_TEXT')) {
                             const baseStage = currentStage.replace('_AWAITING_TEXT', '');
                             const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
 
@@ -185,7 +196,42 @@ app.get('/webhook', (req, res) => {
                                 return;
                             }
                             return;
+                        }*/
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                        if (String(currentStage).endsWith('_AWAITING_TEXT')) {
+                            const baseStage = currentStage.replace('_AWAITING_TEXT', '');
+                            const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
+                            if (!userAnswers.has(from)) userAnswers.set(from, {});
+                            const fieldName = (stageRowBase[2] || '').replace(/[\[\]]/g, '').trim();
+                            userAnswers.get(from)[fieldName] = userInput;
+
+                            // עבור תמיד לעמודה 3 (index 3 = שלב הבא בגיליון)
+                            const nextStage = stageRowBase[3];
+                            if (nextStage) {
+                                userStates.set(from, String(nextStage).trim());
+                                const nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
+                                // טיפל בשלב הבא כרגיל (כולל קלט טקסט נוסף וכו')
+                                if (nextRow && nextRow.length === 2) {
+                                    userStates.delete(from);
+                                    endedSessions.add(from);
+                                    await sendWhatsappMessage(from, nextRow[1]);
+                                } else if (nextRow) {
+                                    if (nextRow.length === 4 && /^\[.*\]$/.test(nextRow[2]?.trim?.())) {
+                                        await sendWhatsappMessage(from, nextRow[1]);
+                                        userStates.set(from, String(nextStage).trim() + '_AWAITING_TEXT');
+                                    } else {
+                                        await sendWhatsappMessage(from, composeMessage(nextRow));
+                                    }
+                                } else {
+                                    await sendWhatsappMessage(from, 'אירעה שגיאה - שלב לא מזוהה!');
+                                }
+                            }
+                            return;
                         }
+
+
+
+                        ///////////////////////////////////////////////////////////////
 
                         const stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
                         if (!stageRow) {
@@ -194,6 +240,12 @@ app.get('/webhook', (req, res) => {
                         }
 
                         // === סיום ===
+                        /*if (stageRow.length === 2) {
+                            userStates.delete(from);
+                            endedSessions.add(from);
+                            await sendWhatsappMessage(from, stageRow[1]);
+                            return;
+                        }*/
                         if (stageRow.length === 2) {
                             userStates.delete(from);
                             endedSessions.add(from);
@@ -201,9 +253,15 @@ app.get('/webhook', (req, res) => {
                             return;
                         }
 
+
                         // === שלב טקסט חופשי ===
-                        if (stageRow.length > 2 && /^\[.*\]$/.test(stageRow[2]?.trim?.())) {
+                        /*if (stageRow.length > 2 && /^\[.*\]$/.test(stageRow[2]?.trim?.())) {
                             await sendWhatsappMessage(from, stageRow[1]);
+                            userStates.set(from, String(currentStage).trim() + '_AWAITING_TEXT');
+                            return;
+                        }*/
+                        if (stageRow.length === 4 && /^\[.*\]$/.test(stageRow[2]?.trim?.())) {
+                            await sendWhatsappMessage(from, stageRow[1]);          // שלח רק כותרת של השדה
                             userStates.set(from, String(currentStage).trim() + '_AWAITING_TEXT');
                             return;
                         }
