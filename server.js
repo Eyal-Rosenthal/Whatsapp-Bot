@@ -145,37 +145,37 @@ app.get('/webhook', (req, res) => {
                                         
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const justEndedSession = new Set();
+            const justEndedSession = new Set();
 
             enqueueUserTask(from, async () => {
                 let currentStage = userStates.get(from);
 
-                // תחילת session אמיתי אחרי סיום (פנייה חדשה לאחר יציאה)
+                // 1. אם אין סטייט:
                 if (!currentStage) {
+                    // אם הסשן הסתיים עכשיו - התחל מחדש
                     if (justEndedSession.has(from)) {
-                        justEndedSession.delete(from);
                         userStates.set(from, '0');
-                        currentStage = '0';
                         let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
                         if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+                        justEndedSession.delete(from); // מורידים מהסט אחרי פתיחה
                     }
-                    // אחרת, פשוט מתעלמים מהודעות ריקות/ספאם
+                    // אם לא — ignore (או תרצה תמיד תפריט? אפשר לשנות!)
                     return;
                 }
 
                 let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-                // שלב סיום — שתי עמודות בלבד
+                // 2. שלב סיום (שתי עמודות בלבד)
                 if (stageRow && stageRow.length === 2) {
                     userStates.delete(from);
                     endedSessions.delete(from);
                     mustSendIntro.delete(from);
-                    justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                     await sendWhatsappMessage(from, stageRow[1]);
+                    justEndedSession.add(from); // מסמן יציאה מהסשן, להפעלה בעתיד
                     return;
                 }
 
-                // קלט טקסט חופשי — שדה עם placeholder רק אם לא ב־AWAITING_TEXT
+                // 3. שלב קלט טקסט חופשי (לא ב־AWAITING_TEXT)
                 if (
                     stageRow &&
                     stageRow.length >= 3 &&
@@ -187,7 +187,7 @@ const justEndedSession = new Set();
                     return;
                 }
 
-                // טיפול ב־AWAITING_TEXT (שמירה ומעבר לשלב הבא)
+                // 4. טיפול ב־AWAITING_TEXT בפועל (שמירה ומעבר)
                 if (String(currentStage).endsWith('_AWAITING_TEXT')) {
                     const baseStage = currentStage.replace('_AWAITING_TEXT', '');
                     const stageRowBase = botFlowData.find(row => String(row[0]).trim() === baseStage);
@@ -198,17 +198,16 @@ const justEndedSession = new Set();
 
                     if (nextStage) {
                         let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
-                        // שלב סיום אחרי טקסט חופשי
+                        // שלב סיום אחרי טקסט
                         if (nextRow && nextRow.length === 2) {
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
-                            justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                             await sendWhatsappMessage(from, nextRow[1]);
-                            // session מאופס, פנייה הבאה תתחיל מחדש!
+                            justEndedSession.add(from);
                             return;
                         }
-                        // שלב קלט טקסט חופשי -- נשלח הודעה והופכים ל־AWAITING_TEXT
+                        // שלב טקסט חדש
                         if (
                             nextRow &&
                             nextRow.length >= 3 &&
@@ -230,11 +229,12 @@ const justEndedSession = new Set();
                         userStates.delete(from);
                         endedSessions.delete(from);
                         mustSendIntro.delete(from);
+                        justEndedSession.add(from);
                         return;
                     }
                 }
 
-                // בחירה מרובה
+                // 5. בחירה מרובה
                 const selectedOption = parseInt(userInput, 10);
                 const validOptionsCount = Math.floor((stageRow.length - 2) / 2);
                 if (!isNaN(selectedOption) && selectedOption >= 1 && selectedOption <= validOptionsCount) {
@@ -244,8 +244,8 @@ const justEndedSession = new Set();
                         userStates.delete(from);
                         endedSessions.delete(from);
                         mustSendIntro.delete(from);
-                        justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                         await sendWhatsappMessage(from, 'תודה שיצרת קשר!');
+                        justEndedSession.add(from);
                         return;
                     } else if (nextStage) {
                         let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
@@ -253,9 +253,8 @@ const justEndedSession = new Set();
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
-                            justEndedSession.add(from); // מסמן את המשתמש שיצא מהשיחה
                             await sendWhatsappMessage(from, nextRow[1]);
-                            // session מאופס, פנייה הבאה תתחיל מחדש!
+                            justEndedSession.add(from);
                             return;
                         }
                         if (
@@ -276,13 +275,14 @@ const justEndedSession = new Set();
                         return;
                     }
                 }
-                
-                // קלט לא חוקי — מחזירים הודעה רק אם המשתמש עדיין ב-session
+
+                // 6. קלט לא חוקי — מחזירים הודעה רק אם המשתמש עדיין ב-session
                 if (userStates.has(from)) {
                     await sendWhatsappMessage(from, 'בחרת אפשרות שאינה קיימת, אנא בחר שוב\n' + composeMessage(stageRow));
                 }
-                // אם session מאופס — בפנייה חדשה userStates לא קיים, נשלחת פתיחה מחדש.
+                // אחרי סיום, בפנייה הבאה תשלח פתח חדש.
             });
+
 
 
 
