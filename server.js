@@ -248,7 +248,7 @@ app.get('/webhook', (req, res) => {
                         }*/
                         if (stageRow.length === 2) {
                             userStates.delete(from);
-                            endedSessions.add(from);
+                            endedSessions.delete(from);
                             await sendWhatsappMessage(from, stageRow[1]);
                             return;
                         }
