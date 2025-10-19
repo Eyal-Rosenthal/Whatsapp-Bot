@@ -152,27 +152,24 @@ app.get('/webhook', (req, res) => {
                 enqueueUserTask(from, async () => {
                     let currentStage = userStates.get(from);
 
-                    // ---- התחלה רשמית ----
                     if (!currentStage) {
+                        // משתמש חדש, קבל תפריט ראשוני בלבד
                         userStates.set(from, '0');
                         currentStage = '0';
-                        let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
-                        if (startRow) {
-                            await sendWhatsappMessage(from, composeMessage(startRow));
-                        }
+                        const startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                        if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
                         return;
                     }
 
                     let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
 
-                    // ---- שלב סיום: איפוס והפסקה אמיתית ----
+                    // שלב סיום אמיתי
                     if (stageRow && stageRow.length === 2) {
-                        console.log('שולח הודעת סיום ומאפס', from, currentStage);
                         userStates.delete(from);
                         endedSessions.delete(from);
                         mustSendIntro.delete(from);
                         await sendWhatsappMessage(from, stageRow[1]);
-                        return; // סיים!
+                        return;
                     }
 
                     // ---- קלט טקסט חופשי ----
