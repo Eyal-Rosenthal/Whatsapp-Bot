@@ -138,7 +138,8 @@ app.get('/webhook', (req, res) => {
                                         const from = message.from.trim();
                                         const userInput = message.text.body.trim();
 
-                                        enqueueUserTask(from, async () => {
+                    enqueueUserTask(from, async () => {
+
                         if (endedSessions.has(from) || !userStates.has(from)) {
                             endedSessions.delete(from);
                             userStates.set(from, '0');
@@ -153,6 +154,7 @@ app.get('/webhook', (req, res) => {
                         }
 
                         let currentStage = userStates.get(from) || '0';
+                        console.log(`[FLOW DEBUG] from:${from}, currentStage:${currentStage}, state:[${userStates.get(from)}], input:${userInput}`);
 
                         // (1) אם המשתמש במצב AWAITING_TEXT — זה שלב טקסט חופשי
                         if (String(currentStage).endsWith('_AWAITING_TEXT')) {
@@ -177,6 +179,9 @@ app.get('/webhook', (req, res) => {
                                     if (/^\[.*\]/.test(nextRow[1])) {
                                         await sendWhatsappMessage(from, nextRow[1]);
                                         userStates.set(from, nextStage + '_AWAITING_TEXT');
+                                        if (String(currentStage).endsWith('_AWAITING_TEXT')) {
+                                        console.log(`[AWAITING TEXT] קלט חופשי מ-${from}: ${userInput}`);
+                                        }
                                     } else {
                                         await sendWhatsappMessage(from, composeMessage(nextRow));
                                     }
@@ -204,7 +209,7 @@ app.get('/webhook', (req, res) => {
                         // (3) אם זה שלב קלט טקסט
                         if (
                             stageRow.length >= 3 &&
-                            /^\[.*\]/.test(stageRow[1])
+                            /^\[.*\]/.test(stageRow[2])
                         ) {
                             await sendWhatsappMessage(from, stageRow[1]); // מציג רק את הכותרת
                             userStates.set(from, currentStage + '_AWAITING_TEXT');
