@@ -152,6 +152,12 @@ app.get('/webhook', (req, res) => {
 
                 // 1. אם אין סטייט:
                 if (!currentStage) {
+                    userStates.set(from, '0');
+                    let startRow = botFlowData.find(row => String(row[0]).trim() === '0');
+                    if (startRow) await sendWhatsappMessage(from, composeMessage(startRow));
+                    return;
+
+                /*if (!currentStage) {
                     // אם הסשן הסתיים עכשיו - התחל מחדש
                     if (justEndedSession.has(from)) {
                         userStates.set(from, '0');
@@ -160,7 +166,7 @@ app.get('/webhook', (req, res) => {
                         justEndedSession.delete(from); // מורידים מהסט אחרי פתיחה
                     }
                     // אם לא — ignore (או תרצה תמיד תפריט? אפשר לשנות!)
-                    return;
+                    return;*/
                 }
 
                 let stageRow = botFlowData.find(row => String(row[0]).trim() === String(currentStage).trim());
