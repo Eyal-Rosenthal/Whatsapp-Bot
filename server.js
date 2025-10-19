@@ -88,14 +88,14 @@ function runNextTask(from) {
 }
 
 function composeMessage(row) {
-    // stageRow[1] לא טקסט חופשי? מציג כותרת + אפשרויות
-    if (/^\[.*\]/.test(row[1])) return row[1];
+    if (row.length > 2 && /^\[.*\]/.test(row[2])) return row[1];
     let msg = row[1] + '\n';
     for (let i = 2, count = 1; i < row.length; i += 2, count++) {
-        if (row[i]) msg += `${count}. ${row[i]}\n`;
+        if (row[i] && !/^\[.*\]/.test(row[i])) msg += `${count}. ${row[i]}\n`;
     }
     return msg.trim();
 }
+
 
 async function sendWhatsappMessage(to, message) {
     try {
