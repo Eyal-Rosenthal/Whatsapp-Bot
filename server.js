@@ -447,15 +447,15 @@ async function appendSessionToSheet(sessionAnswers) {
     });
     const headers = sheetInfo.data.values[0];
 
-    const dateObj = new Date();
-    const israelDate = dateObj.toLocaleDateString('he-IL');
-    const israelTime = dateObj.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false })+3;
+const dateObj = new Date();
+const israelDate = dateObj.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' });
+const israelTime = dateObj.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jerusalem' });
 
-    const values = headers.map(colName => {
-        if (colName === 'תאריך') return israelDate;
-        if (colName === 'שעה') return israelTime;
-        return (sessionAnswers && sessionAnswers[colName]) || '';
-    });
+const values = headers.map(colName => {
+    if (colName === 'תאריך') return israelDate;
+    if (colName === 'שעה') return israelTime;
+    return (sessionAnswers && sessionAnswers[colName]) || '';
+});
 
     await sheets.spreadsheets.values.append({
         spreadsheetId: GOOGLE_RESPONSES_SHEET_ID,
