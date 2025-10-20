@@ -116,7 +116,7 @@ function composeMessage(row) {
     // מקרים רגילים
     let msg = row[1] + '\n';
     for (let i = 2, count = 1; i < row.length; i += 2, count++) {
-        if (row[i] && !/^\[.*\]$/.test(row[i])) msg += `${count}. ${row[i]}\n`;
+        if (row[i] && !/^\[.*\]$/.test(row[i])) msg += `${count} - ${row[i]}\n`;
     }
     return msg.trim();
 }
