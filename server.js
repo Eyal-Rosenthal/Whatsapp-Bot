@@ -220,11 +220,12 @@ app.post('/webhook', async (req, res) => {
                         // שלב סיום
                         if (stageRow && stageRow.length === 2) {
                             // שלב 9 — סיום
-                            if (String(stageRow[0]).trim() === '9') {
-                                await sendWhatsappMessage(from, stageRow[1]); // סיום מיידי!
-                                // כתיבה לגוגל שיט בצורה שלא עוצרת את המשתמש:
+                            if (stageRow && stageRow.length === 2 && String(stageRow[0]).trim() === '9') {
+                                // שלח למשתמש מיד את הודעת הסיום
+                                await sendWhatsappMessage(from, stageRow[1]);
+                                // נסה לכתוב ל־Google Sheet ברקע, אבל לא תעצור שום דבר במקרה של שגיאה
                                 appendSessionToSheet(userAnswers.get(from)).catch(e => {
-                                    console.error('[Sheet][Write][Error]', e); // שגיאה תירשם לשרת בלבד ולא תגיע למשתמש
+                                    console.error('[Sheet][Write][Error]', e);
                                 });
                                 userStates.delete(from);
                                 endedSessions.delete(from);
@@ -232,6 +233,7 @@ app.post('/webhook', async (req, res) => {
                                 userAnswers.delete(from);
                                 return;
                             }
+
                             userStates.delete(from);
                             endedSessions.delete(from);
                             mustSendIntro.delete(from);
@@ -263,11 +265,12 @@ app.post('/webhook', async (req, res) => {
                                 let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                 if (nextRow && nextRow.length === 2) {
                                     // שלב 9 — סיום
-                                    if (String(stageRow[0]).trim() === '9') {
-                                        await sendWhatsappMessage(from, stageRow[1]); // סיום מיידי!
-                                        // כתיבה לגוגל שיט בצורה שלא עוצרת את המשתמש:
+                                    if (stageRow && stageRow.length === 2 && String(stageRow[0]).trim() === '9') {
+                                        // שלח למשתמש מיד את הודעת הסיום
+                                        await sendWhatsappMessage(from, stageRow[1]);
+                                        // נסה לכתוב ל־Google Sheet ברקע, אבל לא תעצור שום דבר במקרה של שגיאה
                                         appendSessionToSheet(userAnswers.get(from)).catch(e => {
-                                            console.error('[Sheet][Write][Error]', e); // שגיאה תירשם לשרת בלבד ולא תגיע למשתמש
+                                            console.error('[Sheet][Write][Error]', e);
                                         });
                                         userStates.delete(from);
                                         endedSessions.delete(from);
@@ -275,6 +278,7 @@ app.post('/webhook', async (req, res) => {
                                         userAnswers.delete(from);
                                         return;
                                     }
+
                                     userStates.delete(from);
                                     endedSessions.delete(from);
                                     mustSendIntro.delete(from);
@@ -326,18 +330,20 @@ app.post('/webhook', async (req, res) => {
                                     let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                     if (nextRow && nextRow.length === 2) {
                                         // שלב 9 — סיום
-                                        if (String(stageRow[0]).trim() === '9') {
-                                            await sendWhatsappMessage(from, stageRow[1]); // סיום מיידי!
-                                            // כתיבה לגוגל שיט בצורה שלא עוצרת את המשתמש:
+                                        if (stageRow && stageRow.length === 2 && String(stageRow[0]).trim() === '9') {
+                                            // שלח למשתמש מיד את הודעת הסיום
+                                            await sendWhatsappMessage(from, stageRow[1]);
+                                            // נסה לכתוב ל־Google Sheet ברקע, אבל לא תעצור שום דבר במקרה של שגיאה
                                             appendSessionToSheet(userAnswers.get(from)).catch(e => {
-                                                console.error('[Sheet][Write][Error]', e); // שגיאה תירשם לשרת בלבד ולא תגיע למשתמש
+                                                console.error('[Sheet][Write][Error]', e);
                                             });
                                             userStates.delete(from);
                                             endedSessions.delete(from);
                                             mustSendIntro.delete(from);
                                             userAnswers.delete(from);
                                             return;
-                                        }        
+                                        }
+                                            
                                         userStates.delete(from);
                                         endedSessions.delete(from);
                                         mustSendIntro.delete(from);
