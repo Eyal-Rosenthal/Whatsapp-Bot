@@ -447,16 +447,19 @@ async function appendSessionToSheet(sessionAnswers) {
     });
     const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
 
-    // שלוף את הכותרות מהגיליון
     const sheetInfo = await sheets.spreadsheets.values.get({
         spreadsheetId: GOOGLE_RESPONSES_SHEET_ID,
         range: 'Sheet1!1:1'
     });
     const headers = sheetInfo.data.values[0];
 
-    // -- הכנת שורה חדשה לפי שם העמודה ומיפוי התשובות העדכניות בלבד --
+    const dateObj = new Date();
+    const israelDate = dateObj.toLocaleDateString('he-IL');
+    const israelTime = dateObj.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false });
+
     const values = headers.map(colName => {
-        if (colName === 'מועד פנייה') return new Date().toLocaleString('he-IL');
+        if (colName === 'תאריך') return israelDate;
+        if (colName === 'שעה') return israelTime;
         return (sessionAnswers && sessionAnswers[colName]) || '';
     });
 
