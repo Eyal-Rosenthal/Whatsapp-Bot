@@ -87,8 +87,22 @@ async function loadBotFlowData() {
 const updateUserAnswer = (from, stage, userInput) => {
     const field = stageToFieldMap[stage];
     if (field) {
+        let value = userInput;
+        // המרה של בחירה מרובה לטקסט, רק אם input מספרי
+        if (!isNaN(value)) {
+            const stageRow = botFlowData.find(row => String(row[0]).trim() === String(stage).trim());
+            if (stageRow) {
+                let count = 1;
+                for (let i = 2; i < stageRow.length; i += 2, count++) {
+                    if (count == value && stageRow[i]) {
+                        value = stageRow[i];
+                        break;
+                    }
+                }
+            }
+        }
         if (!userAnswers.has(from)) userAnswers.set(from, {});
-        userAnswers.get(from)[field] = userInput;
+        userAnswers.get(from)[field] = value;
     }
 };
 
@@ -341,16 +355,21 @@ app.post('/webhook', async (req, res) => {
 // עדכון Pause מתוזמן
 setInterval(async () => {
     const now = Date.now();
-    const pauseRow = botFlowData.find(row => String(row[0]).trim() === "End Session after pause");
+    const pauseRow = botFlowData ? botFlowData.find(row => String(row[0]).trim() === "End Session after pause") : null;
     let pauseReminderMinutes = 5;
     if (pauseRow && pauseRow[1] && !isNaN(Number(pauseRow[1]))) {
         pauseReminderMinutes = Number(pauseRow[1]);
     }
     const pauseReminderMs = pauseReminderMinutes * 60 * 1000;
 
-    // שליחת הודעת Pause
+    // שליחת הודעת Pause — רק למשתמשים בסשן פעיל
     for (const [from, time] of lastActivity.entries()) {
-        if (userStates.has(from) && !pauseAwaitingResponse.has(from) && now - time > pauseReminderMs) {
+        if (
+            userStates.has(from) &&
+            !pauseAwaitingResponse.has(from) &&
+            now - time > pauseReminderMs &&
+            userAnswers.has(from) // לוודא שיש סשן פעיל
+        ) {
             if (pauseRow) {
                 const pauseMsg = `${pauseRow[2]}\n1 - כן\n2 - לא`;
                 await sendWhatsappMessage(from, pauseMsg);
@@ -381,7 +400,7 @@ setInterval(async () => {
             lastActivity.delete(from);
         }
     }
-}, 60 * 1000);
+}, 10 * 1000);
 
 ///////////////////////////////////////////////////////////////
 
@@ -402,26 +421,12 @@ async function appendSessionToSheet(sessionAnswers) {
     });
     const headers = sheetInfo.data.values[0];
 
-    // הכנת שורה חדשה כולל המרת מספר למלל בבחירה מרובה
-    const values = await Promise.all(headers.map(async colName => {
+    // -- הכנת שורה חדשה לפי שם העמודה ומיפוי התשובות העדכניות בלבד --
+    const values = headers.map(colName => {
         if (colName === 'מועד פנייה') return new Date().toLocaleString('he-IL');
-        let inputVal = (sessionAnswers && sessionAnswers[colName]) || '';
-        if (inputVal && !isNaN(inputVal)) {
-            const row = botFlowData.find(row => row.some(cell => (cell || '').trim() === colName.trim()));
-            if (row && row.length >= 4) {
-                let count = 1;
-                for (let i = 2; i < row.length; i += 2, count++) {
-                    if (count == inputVal && row[i]) {
-                        inputVal = row[i];
-                        break;
-                    }
-                }
-            }
-        }
-        return inputVal;
-    }));
+        return (sessionAnswers && sessionAnswers[colName]) || '';
+    });
 
-    // כתיבה לשורה חדשה בגיליון
     await sheets.spreadsheets.values.append({
         spreadsheetId: GOOGLE_RESPONSES_SHEET_ID,
         range: 'Sheet1',
@@ -440,8 +445,6 @@ loadBotFlowData().then(() => {
 }).catch(err => {
     console.error('[Startup][Sheet][ERROR]', err);
 });
-
-
 
 
 
