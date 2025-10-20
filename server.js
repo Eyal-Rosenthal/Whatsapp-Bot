@@ -8,26 +8,6 @@ const lastActivity = new Map();
 const pauseAwaitingResponse = new Map(); // שמירת סטייט pause למשתמשים
 
 
-
-
-/*///////mail sender
-const nodemailer = require('nodemailer');
-const SUMMARY_EMAIL_TO = 'eyal.rosentha@gmail.com'; // היעד שאליו יישלחו הסיכומים
-// gmail או שרת smtp אחר שלך
-const EMAIL_FROM = 'eyal.rosenthal@gmail.com';
-const EMAIL_PASS = 'YOUR_APP_PASSWORD_HERE';
-// אופציונלי: הגדר גם user בסביבה/סקריפט
-
-const mailTransport = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-    user: EMAIL_FROM,
-    pass: EMAIL_PASS
-    }
-});
-
-////////////////////////////////////////////////////////////*/
-
 const app = express();
 app.use(bodyParser.json());
 
@@ -48,6 +28,7 @@ const {
     GOOGLE_SHEET_ID,
     GCLOUD_PROJECT,
     WHATSAPP_PHONE,
+    Google_Response_Sheet,
 } = process.env;
 
 const credentials = {
@@ -166,7 +147,6 @@ app.post('/webhook', async (req, res) => {
                     const userInput = message.text.body.trim();
                     
                     enqueueUserTask(from, async () => {
-                            /////////////////////////////////////////////////////////////////////////////////////////////////
 
                             lastActivity.set(from, Date.now());
 
@@ -199,8 +179,6 @@ app.post('/webhook', async (req, res) => {
                                 }
                                 return;
                             }
-
-                            //////////////////////////////////////////////////////////////////////////////////////////////////
                             
                             let currentStage = userStates.get(from);
 
@@ -216,10 +194,16 @@ app.post('/webhook', async (req, res) => {
 
                             // שלב סיום - שורה עם שתי עמודות בלבד
                             if (stageRow && stageRow.length === 2) {
-                                /*if (String(stageRow[0]).trim() === '9') {
-                                    // כאן להפעיל את שליחת הסיכום
-                                    await sendSessionSummaryEmail(from);
-                                }*/
+                                if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
+                                    // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
+                                    await appendSessionToSheet(userAnswers.get(from));
+                                    userStates.delete(from);
+                                    endedSessions.delete(from);
+                                    mustSendIntro.delete(from);
+                                    userAnswers.delete(from);
+                                    await sendWhatsappMessage(from, nextRow[1]);
+                                    return;
+                                }
                                 userStates.delete(from);
                                 endedSessions.delete(from);
                                 mustSendIntro.delete(from);
@@ -236,11 +220,6 @@ app.post('/webhook', async (req, res) => {
                             ) {
                                 await sendWhatsappMessage(from, stageRow[1]);
                                 userStates.set(from, String(stageRow[0]).trim() + '_AWAITING_TEXT');
-
-                                /*//////////////      MAIL         /////////////////////////////////////////////////////////////
-                                if (!userAnswers.has(from)) userAnswers.set(from, {});
-                                        userAnswers.get(from)[fieldName] = userInput; // כך גם לטקסט חופשי וגם לבחירה
-                                //////////////////////////////////////////////////////////////////////////////////////////////*/
                                 return;
                             }
 
@@ -255,6 +234,16 @@ app.post('/webhook', async (req, res) => {
                                 if (nextStage) {
                                     let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                     if (nextRow && nextRow.length === 2) {
+                                        if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
+                                            // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
+                                            await appendSessionToSheet(userAnswers.get(from));
+                                            userStates.delete(from);
+                                            endedSessions.delete(from);
+                                            mustSendIntro.delete(from);
+                                            userAnswers.delete(from);
+                                            await sendWhatsappMessage(from, nextRow[1]);
+                                            return;
+                                        }
                                         // שלב סיום אמיתי
                                         userStates.delete(from);
                                         endedSessions.delete(from);
@@ -272,10 +261,6 @@ app.post('/webhook', async (req, res) => {
                                         // שלב רגיל
                                         await sendWhatsappMessage(from, composeMessage(nextRow));
                                         userStates.set(from, String(nextStage).trim());
-                                        /*//////////////       MAIL        /////////////////////////////////////////////////////////////
-                                        if (!userAnswers.has(from)) userAnswers.set(from, {});
-                                        userAnswers.get(from)[fieldName] = userInput; // כך גם לטקסט חופשי וגם לבחירה
-                                        //////////////////////////////////////////////////////////////////////////////////////////////*/
                                         return;
                                     }
                                     // nextStage לא מזוהה: שגיאה, איפוס סשן ופתיחה מחדש
@@ -309,6 +294,16 @@ app.post('/webhook', async (req, res) => {
                                     } else if (nextStage) {
                                         let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                         if (nextRow && nextRow.length === 2) {
+                                            if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
+                                            // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
+                                            await appendSessionToSheet(userAnswers.get(from));
+                                            userStates.delete(from);
+                                            endedSessions.delete(from);
+                                            mustSendIntro.delete(from);
+                                            userAnswers.delete(from);
+                                            await sendWhatsappMessage(from, nextRow[1]);
+                                            return;
+                                        }                                            
                                             userStates.delete(from);
                                             endedSessions.delete(from);
                                             mustSendIntro.delete(from);
@@ -355,7 +350,6 @@ app.post('/webhook', async (req, res) => {
 });
 
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 // לולאת בדיקה פעם בדקה
@@ -414,83 +408,59 @@ setInterval(async () => {
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
-/*setInterval(async () => {
-    const now = Date.now();
-    // שלוף את זמן ההמתנה מהשיט
-    const pauseRow = botFlowData.find(row => String(row[0]).trim() === "End Session after pause");
-    let pauseMinutes = 5; // ברירת מחדל
-    if (pauseRow && !isNaN(Number(pauseRow[1]))) {
-        pauseMinutes = Number(pauseRow[1]);
-    }
-    const pauseMs = pauseMinutes * 60 * 1000;
 
-    for (const [from, time] of lastActivity.entries()) {
-        if (
-            userStates.has(from) &&
-            !pauseAwaitingResponse.has(from) &&
-            now - time > pauseMs
-        ) {
-            // מצא את השורה המתאימה
-            const pauseRow = botFlowData.find(row => String(row[0]).trim() === "End Session after pause");
-            if (pauseRow) {
-                const pauseMsg = `${pauseRow[2]}\n1 - כן\n2 - לא`;
-                await sendWhatsappMessage(from, pauseMsg);
-                pauseAwaitingResponse.set(from, {
-                    prevStage: userStates.get(from), // שלב שבו היה המשתמש
-                    endStage: pauseRow[3] // לאן לעבור אם "לא"
-                });
-            }
-        }
-            if (!userStates.has(from)) {
-                lastActivity.delete(from);
-                pauseAwaitingResponse.delete(from);
-        }
-    }
-}, 60 * 1000);*/
+// שמך במשתנה סביבה (env): Google_Response_Sheet
+const GOOGLE_RESPONSES_SHEET_ID = Google_Response_Sheet;
+
+// סדר ושמות העמודות (ניתן להרחיב רק מצידו של הגיליון)
+const RESPONSE_COLUMNS = [
+    'מועד פנייה',    // נבנה אוטומטית בקוד
+    'שם פרטי',
+    'שם משפחה',
+    'טלפון נייד',
+    'כתובת מייל',
+    'יישוב',
+    'מועצה',
+    'סיבת הפנייה'
+];
+
+// פונקציה שממפה נתוני session לשורת ערכים עבור המערכת
+async function appendSessionToSheet(sessionAnswers) {
+    const auth = new google.auth.GoogleAuth({
+        keyFile: keyFilePath,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
+
+    // שלוף את שורת הכותרות המלאות מגיליון Sheet1
+    const sheetInfo = await sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_RESPONSES_SHEET_ID,
+        range: 'Sheet1!1:1'
+    });
+    const headers = sheetInfo.data.values[0];
+
+    // בנה מערך ערכים באותו סדר עמודות - לפי הכותרת
+    const values = headers.map(colName => {
+        if (colName === 'מועד פנייה') return new Date().toLocaleString('he-IL');
+        // מחפש ערך מה-answers לפי שם העמודה
+        return sessionAnswers[colName] || '';
+    });
+
+    // הוסף השורה החדשה
+    await sheets.spreadsheets.values.append({
+        spreadsheetId: GOOGLE_RESPONSES_SHEET_ID,
+        range: 'Sheet1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        resource: { values: [values] }
+    });
+}
 
 
-/*async function sendSessionSummaryEmail(from) {
-    const answers = userAnswers.get(from) || {};
-    // שלוף את השלבים (כמו שלב1 => [מזהה שורה, טקסט, אופציות...])
-    const summaryLines = [];
-    summaryLines.push('שלום, הגיעה פנייה חדשה מעוזי הבוט');
 
-    // עבור על כל מאפיין-משתמש שסונן במהלך הסשן
-    for (const [field, value] of Object.entries(answers)) {
-        // בדוק אם זה שדה עם בחירה מרובה ותרגם לטקסט
-        let label = field;
-        let textVal = value;
 
-        // מצא את השורה בגיליון המתאים (שווה ל-label) אם יש
-        const stageRow = botFlowData.find(row =>
-            row.some(cell => typeof cell === 'string' && cell.replace(/[\[\]]/g, '').trim() === field)
-        );
-        if (stageRow) {
-            // בדוק אם זה שלב בחירה
-            for (let i = 2, count = 1; i < stageRow.length; i += 2, count++) {
-                if (String(count) === String(value) && stageRow[i]) {
-                    textVal = stageRow[i];
-            break;
-            }
-          }
-        }
-        summaryLines.push(label + ': ' + textVal);
-    }    
-    summaryLines.push('יום טוב');
+/////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    const mailOptions = {
-        from: EMAIL_FROM,
-        to: SUMMARY_EMAIL_TO,
-        subject: 'פנייה חדשה מעוזי הבוט',
-        text: summaryLines.join('\n')
-    };
-
-    try {
-        await mailTransport.sendMail(mailOptions);
-    } catch (error) {
-    console.error('[Mail][Send][Error]', error);
-    }
-}*/
 
 
 loadBotFlowData().then(() => {
