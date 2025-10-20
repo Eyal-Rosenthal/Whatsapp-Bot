@@ -222,13 +222,12 @@ app.post('/webhook', async (req, res) => {
                             // שלב 9 — סיום
                                 if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
                                     // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
-                                    await sendWhatsappMessage(from, 'התשובות שלך נשמרות...');
+                                    await sendWhatsappMessage(from, nextRow[1]);
                                     await appendSessionToSheet(userAnswers.get(from));
                                     userStates.delete(from);
                                     endedSessions.delete(from);
                                     mustSendIntro.delete(from);
                                     userAnswers.delete(from);
-                                    await sendWhatsappMessage(from, nextRow[1]);
                                     return;
                                 }
 
@@ -265,7 +264,7 @@ app.post('/webhook', async (req, res) => {
                                     // שלב 9 — סיום
                                     if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
                                         // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
-                                        await sendWhatsappMessage(from, 'התשובות שלך נשמרות...');
+                                        await sendWhatsappMessage(from, nextRow[1]);
                                         await appendSessionToSheet(userAnswers.get(from));
                                         userStates.delete(from);
                                         endedSessions.delete(from);
@@ -328,7 +327,7 @@ app.post('/webhook', async (req, res) => {
                                         // שלב 9 — סיום
                                         if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
                                             // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
-                                            await sendWhatsappMessage(from, 'התשובות שלך נשמרות...');
+                                            await sendWhatsappMessage(from, nextRow[1]);
                                             await appendSessionToSheet(userAnswers.get(from));
                                             userStates.delete(from);
                                             endedSessions.delete(from);
