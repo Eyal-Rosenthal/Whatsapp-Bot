@@ -220,7 +220,18 @@ app.post('/webhook', async (req, res) => {
                         // שלב סיום
                         if (stageRow && stageRow.length === 2) {
                             if (String(stageRow[0]).trim() === '9') {
-                                await appendSessionToSheet(userAnswers.get(from));
+                                await sendWhatsappMessage(from, stageRow[1]); // הודעת סיום מידית!
+                                try {
+                                    await appendSessionToSheet(userAnswers.get(from)); // כתיבה לגיליון ברקע
+                                } catch (e) {
+                                    console.error('[Sheet][Write][Error]', e);
+                                    // אפשר לשקול שליחת הודעה נוספת רק אם קריטי לעדכן על כישלון
+                                }
+                                userStates.delete(from);
+                                endedSessions.delete(from);
+                                mustSendIntro.delete(from);
+                                userAnswers.delete(from);
+                                return;
                             }
                             userStates.delete(from);
                             endedSessions.delete(from);
@@ -252,8 +263,19 @@ app.post('/webhook', async (req, res) => {
                             if (nextStage) {
                                 let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                 if (nextRow && nextRow.length === 2) {
-                                    if (String(nextRow[0]).trim() === '9') {
-                                        await appendSessionToSheet(userAnswers.get(from));
+                                    if (String(stageRow[0]).trim() === '9') {
+                                        await sendWhatsappMessage(from, stageRow[1]); // הודעת סיום מידית!
+                                        try {
+                                            await appendSessionToSheet(userAnswers.get(from)); // כתיבה לגיליון ברקע
+                                        } catch (e) {
+                                            console.error('[Sheet][Write][Error]', e);
+                                            // אפשר לשקול שליחת הודעה נוספת רק אם קריטי לעדכן על כישלון
+                                        }
+                                        userStates.delete(from);
+                                        endedSessions.delete(from);
+                                        mustSendIntro.delete(from);
+                                        userAnswers.delete(from);
+                                        return;
                                     }
                                     userStates.delete(from);
                                     endedSessions.delete(from);
@@ -305,9 +327,20 @@ app.post('/webhook', async (req, res) => {
                                 } else if (nextStage) {
                                     let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                     if (nextRow && nextRow.length === 2) {
-                                        if (String(nextRow[0]).trim() === '9') {
-                                            await appendSessionToSheet(userAnswers.get(from));
-                                        }
+                                        if (String(stageRow[0]).trim() === '9') {
+                                            await sendWhatsappMessage(from, stageRow[1]); // הודעת סיום מידית!
+                                            try {
+                                                await appendSessionToSheet(userAnswers.get(from)); // כתיבה לגיליון ברקע
+                                            } catch (e) {
+                                                console.error('[Sheet][Write][Error]', e);
+                                                // אפשר לשקול שליחת הודעה נוספת רק אם קריטי לעדכן על כישלון
+                                            }
+                                            userStates.delete(from);
+                                            endedSessions.delete(from);
+                                            mustSendIntro.delete(from);
+                                            userAnswers.delete(from);
+                                            return;
+                                        }           
                                         userStates.delete(from);
                                         endedSessions.delete(from);
                                         mustSendIntro.delete(from);
