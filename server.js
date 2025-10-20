@@ -220,19 +220,17 @@ app.post('/webhook', async (req, res) => {
                         // שלב סיום
                         if (stageRow && stageRow.length === 2) {
                             // שלב 9 — סיום
-                            if (stageRow && stageRow.length === 2 && String(stageRow[0]).trim() === '9') {
-                                // שלח למשתמש מיד את הודעת הסיום
-                                await sendWhatsappMessage(from, stageRow[1]);
-                                // נסה לכתוב ל־Google Sheet ברקע, אבל לא תעצור שום דבר במקרה של שגיאה
-                                appendSessionToSheet(userAnswers.get(from)).catch(e => {
-                                    console.error('[Sheet][Write][Error]', e);
-                                });
-                                userStates.delete(from);
-                                endedSessions.delete(from);
-                                mustSendIntro.delete(from);
-                                userAnswers.delete(from);
-                                return;
-                            }
+                                if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
+                                    // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
+                                    await sendWhatsappMessage(from, 'התשובות שלך נשמרות...');
+                                    await appendSessionToSheet(userAnswers.get(from));
+                                    userStates.delete(from);
+                                    endedSessions.delete(from);
+                                    mustSendIntro.delete(from);
+                                    userAnswers.delete(from);
+                                    await sendWhatsappMessage(from, nextRow[1]);
+                                    return;
+                                }
 
                             userStates.delete(from);
                             endedSessions.delete(from);
@@ -265,17 +263,15 @@ app.post('/webhook', async (req, res) => {
                                 let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                 if (nextRow && nextRow.length === 2) {
                                     // שלב 9 — סיום
-                                    if (stageRow && stageRow.length === 2 && String(stageRow[0]).trim() === '9') {
-                                        // שלח למשתמש מיד את הודעת הסיום
-                                        await sendWhatsappMessage(from, stageRow[1]);
-                                        // נסה לכתוב ל־Google Sheet ברקע, אבל לא תעצור שום דבר במקרה של שגיאה
-                                        appendSessionToSheet(userAnswers.get(from)).catch(e => {
-                                            console.error('[Sheet][Write][Error]', e);
-                                        });
+                                    if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
+                                        // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
+                                        await sendWhatsappMessage(from, 'התשובות שלך נשמרות...');
+                                        await appendSessionToSheet(userAnswers.get(from));
                                         userStates.delete(from);
                                         endedSessions.delete(from);
                                         mustSendIntro.delete(from);
                                         userAnswers.delete(from);
+                                        await sendWhatsappMessage(from, nextRow[1]);
                                         return;
                                     }
 
@@ -330,17 +326,15 @@ app.post('/webhook', async (req, res) => {
                                     let nextRow = botFlowData.find(row => String(row[0]).trim() === String(nextStage).trim());
                                     if (nextRow && nextRow.length === 2) {
                                         // שלב 9 — סיום
-                                        if (stageRow && stageRow.length === 2 && String(stageRow[0]).trim() === '9') {
-                                            // שלח למשתמש מיד את הודעת הסיום
-                                            await sendWhatsappMessage(from, stageRow[1]);
-                                            // נסה לכתוב ל־Google Sheet ברקע, אבל לא תעצור שום דבר במקרה של שגיאה
-                                            appendSessionToSheet(userAnswers.get(from)).catch(e => {
-                                                console.error('[Sheet][Write][Error]', e);
-                                            });
+                                        if (nextRow && nextRow.length === 2 && String(nextRow[0]).trim() === '9') {
+                                            // שלח רק נתונים רלוונטיים, ממפה מספרי בחירה למלל לפי הצורך
+                                            await sendWhatsappMessage(from, 'התשובות שלך נשמרות...');
+                                            await appendSessionToSheet(userAnswers.get(from));
                                             userStates.delete(from);
                                             endedSessions.delete(from);
                                             mustSendIntro.delete(from);
                                             userAnswers.delete(from);
+                                            await sendWhatsappMessage(from, nextRow[1]);
                                             return;
                                         }
                                             
