@@ -9,6 +9,7 @@ const pauseAwaitingResponse = new Map(); // שמירת סטייט pause למשת
 
 
 
+
 /*///////mail sender
 const nodemailer = require('nodemailer');
 const SUMMARY_EMAIL_TO = 'eyal.rosentha@gmail.com'; // היעד שאליו יישלחו הסיכומים
@@ -356,7 +357,6 @@ app.post('/webhook', async (req, res) => {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-const pauseAwaitingResponse = new Map();
 
 // לולאת בדיקה פעם בדקה
 setInterval(async () => {
