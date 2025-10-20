@@ -270,7 +270,6 @@ app.post('/webhook', async (req, res) => {
                                         endedSessions.delete(from);
                                         mustSendIntro.delete(from);
                                         userAnswers.delete(from);
-                                        await sendWhatsappMessage(from, nextRow[1]);
                                         return;
                                     }
 
@@ -333,7 +332,6 @@ app.post('/webhook', async (req, res) => {
                                             endedSessions.delete(from);
                                             mustSendIntro.delete(from);
                                             userAnswers.delete(from);
-                                            await sendWhatsappMessage(from, nextRow[1]);
                                             return;
                                         }
                                             
@@ -451,7 +449,7 @@ async function appendSessionToSheet(sessionAnswers) {
 
     const dateObj = new Date();
     const israelDate = dateObj.toLocaleDateString('he-IL');
-    const israelTime = dateObj.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const israelTime = dateObj.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false })+3;
 
     const values = headers.map(colName => {
         if (colName === 'תאריך') return israelDate;
