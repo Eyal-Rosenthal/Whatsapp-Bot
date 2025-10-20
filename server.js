@@ -354,8 +354,67 @@ app.post('/webhook', async (req, res) => {
 });
 
 
+//////////////////////////////////////////////////////////////////////////////////////////////////
 
+const pauseAwaitingResponse = new Map();
+
+// לולאת בדיקה פעם בדקה
 setInterval(async () => {
+    const now = Date.now();
+
+    // משוך ערך זמן ההמתנה מהשורה הרלוונטית בגוגל שיט
+    const pauseRow = botFlowData.find(row => String(row[0]).trim() === "End Session after pause");
+    let pauseReminderMinutes = 5; // ברירת מחדל ל-5 דקות
+    if (pauseRow && pauseRow[1] && !isNaN(Number(pauseRow[1]))) {
+        pauseReminderMinutes = Number(pauseRow[1]);
+    }
+    const pauseReminderMs = pauseReminderMinutes * 60 * 1000;
+
+    // סרוק כל הפעילויות האחרונות
+    for (const [from, time] of lastActivity.entries()) {
+        // חלף הזמן ואין הודעת pause
+        if (
+            userStates.has(from) &&
+            !pauseAwaitingResponse.has(from) &&
+            now - time > pauseReminderMs
+        ) {
+            // שלח הודעת pause
+            if (pauseRow) {
+                const pauseMsg = `${pauseRow[2]}\n1 - כן\n2 - לא`;
+                await sendWhatsappMessage(from, pauseMsg);
+                pauseAwaitingResponse.set(from, {
+                    prevStage: userStates.get(from),
+                    endStage: pauseRow[3],
+                    sentAt: Date.now()
+                });
+            }
+        }
+        if (!userStates.has(from)) {
+            lastActivity.delete(from);
+            pauseAwaitingResponse.delete(from);
+        }
+    }
+
+    // סרוק משתמשים שממתינים לתשובה ל-pause
+    for (const [from, pauseData] of pauseAwaitingResponse.entries()) {
+        if (Date.now() - pauseData.sentAt > pauseReminderMs) {
+            // עבר זמן — דמה "לחיצה על 2" וסיים את הסשן
+            const endRow = botFlowData.find(row => String(row[0]).trim() === String(pauseData.endStage).trim());
+            if (endRow) {
+                await sendWhatsappMessage(from, endRow[1]);
+            }
+            userStates.delete(from);
+            endedSessions.delete(from);
+            mustSendIntro.delete(from);
+            pauseAwaitingResponse.delete(from);
+            lastActivity.delete(from);
+        }
+    }
+}, 60 * 1000); // רץ כל דקה
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+/*setInterval(async () => {
     const now = Date.now();
     // שלוף את זמן ההמתנה מהשיט
     const pauseRow = botFlowData.find(row => String(row[0]).trim() === "End Session after pause");
@@ -387,7 +446,7 @@ setInterval(async () => {
                 pauseAwaitingResponse.delete(from);
         }
     }
-}, 60 * 1000);
+}, 60 * 1000);*/
 
 
 /*async function sendSessionSummaryEmail(from) {
