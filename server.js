@@ -147,10 +147,10 @@ async function sendWhatsappMessage(to, message) {
 
 app.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
+  const token = req.query['hub.VERIFY_TOKEN'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === process.env.VERIFYTOKEN) {
+  if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
     console.log('Webhook verified');
     res.status(200).send(challenge);
   } else {
